@@ -1,0 +1,8 @@
+﻿9	android.automotive.watchdog.ICarWatchdog/default: [android.automotive.watchdog.ICarWatchdog]
+21	autofill: [android.view.autofill.IAutoFillManager]
+32	car_service: [android.car.ICar]
+33	carrier_config: [com.android.internal.telephony.ICarrierConfigLoader]
+36	com.android.car.procfsinspector: [com.android.car.procfsinspector.IProcfsInspector]
+37	com.desaysv.ivi.vds.cabinlan.service.CabinLanService: []
+38	com.desaysv.ivi.vds.vdev.service.VehicleDevice: [com.desaysv.ivi.vdb.IVDBus]
+39	com.desaysv.ivi.vds.vehicle.service.VehicleService: []

@@ -1,0 +1,622 @@
+{
+  "app": "Shark Hub",
+  "generatedAt": "2026-09-28 17:21:03",
+  "androidSdk": 30,
+  "device": "BYDAuto BYD AUTO",
+  "fingerprint": "BYDAuto\/DX_BYD_AUTO\/DX_BYD_AUTO:11\/RQ3A.211001.001\/eng.scm.20260811.020334:user\/dev-keys",
+  "backend": "none",
+  "discovery": [
+    {
+      "candidate": "service:byd_auto",
+      "result": "null"
+    },
+    {
+      "candidate": "service:autoservice",
+      "result": "null"
+    },
+    {
+      "candidate": "service:auto_service",
+      "result": "null"
+    },
+    {
+      "candidate": "service:byd_car",
+      "result": "null"
+    },
+    {
+      "candidate": "service:car_service",
+      "result": "null"
+    },
+    {
+      "candidate": "service:BYDAutoService",
+      "result": "null"
+    },
+    {
+      "candidate": "class:android.car.BYDAutoManager",
+      "result": "ClassNotFoundException: android.car.BYDAutoManager"
+    },
+    {
+      "candidate": "class:com.byd.auto.BYDAutoManager",
+      "result": "ClassNotFoundException: com.byd.auto.BYDAutoManager"
+    },
+    {
+      "candidate": "class:com.byd.autolink.AutoManager",
+      "result": "ClassNotFoundException: com.byd.autolink.AutoManager"
+    },
+    {
+      "candidate": "class:com.byd.dilink.car.CarManager",
+      "result": "ClassNotFoundException: com.byd.dilink.car.CarManager"
+    }
+  ],
+  "methodCount": 0,
+  "methods": [],
+  "nativePackages": {
+    "com.byd.setting": false,
+    "com.byd.panorama": false,
+    "com.byd.dvr": false,
+    "com.byd.mediacenter": false,
+    "com.byd.radio": false,
+    "com.byd.bt": false,
+    "com.byd.energy": false,
+    "com.android.settings": false
+  },
+  "installedPackages": [
+    {
+      "pkg": "com.byd.abroadgamecollection",
+      "system": false,
+      "launcher": "com.byd.abroadgamecollection\/.ui.MainActivity"
+    },
+    {
+      "pkg": "com.byd.appstartmanagement",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.auto_emanual",
+      "system": true,
+      "launcher": "com.byd.auto_emanual\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.auto_photo",
+      "system": true,
+      "launcher": "com.byd.auto_photo\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.automultipletheme",
+      "system": true,
+      "launcher": "com.byd.automultipletheme\/.activity.MainActivity"
+    },
+    {
+      "pkg": "com.byd.autoservice",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.avm",
+      "system": true,
+      "launcher": "com.byd.avm\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.bluetoothcall",
+      "system": true,
+      "launcher": "com.byd.bluetoothcall\/.view.activity.MainActivity"
+    },
+    {
+      "pkg": "com.byd.browser",
+      "system": false,
+      "launcher": "com.byd.browser\/com.google.android.apps.chrome.Main"
+    },
+    {
+      "pkg": "com.byd.carsettings",
+      "system": true,
+      "launcher": "com.byd.carsettings\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.cleardata",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.cota",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.data.collect",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.dlc.drivingmode",
+      "system": true,
+      "launcher": "com.byd.dlc.drivingmode\/com.byd.drivingmode.MainActivity"
+    },
+    {
+      "pkg": "com.byd.engineermode",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.filemanager",
+      "system": true,
+      "launcher": "com.byd.filemanager\/.ui.MainActivity"
+    },
+    {
+      "pkg": "com.byd.globalnotification",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.hvac",
+      "system": true,
+      "launcher": "com.byd.hvac\/.view.MainActivity"
+    },
+    {
+      "pkg": "com.byd.intelligententry",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.localmusic",
+      "system": true,
+      "launcher": "com.byd.localmusic\/com.byd.music.activity.main.MediaMainActivity"
+    },
+    {
+      "pkg": "com.byd.logtools",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.mycar",
+      "system": true,
+      "launcher": "com.byd.mycar\/.StartActivity"
+    },
+    {
+      "pkg": "com.byd.ota",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.overseaappstore",
+      "system": true,
+      "launcher": "com.byd.overseaappstore\/.ui.MainActivity"
+    },
+    {
+      "pkg": "com.byd.scenemode",
+      "system": true,
+      "launcher": "com.byd.scenemode\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.secretcode",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.sing",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.smarttravel",
+      "system": true,
+      "launcher": "com.byd.smarttravel\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.trafficmonitor",
+      "system": true,
+      "launcher": "com.byd.trafficmonitor\/.MainActivity"
+    },
+    {
+      "pkg": "com.byd.uereport",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.vrassistant",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.vrdownload",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.byd.vrsettings",
+      "system": true,
+      "launcher": "com.byd.vrsettings\/.LaunchActivity"
+    },
+    {
+      "pkg": "com.byd.youtube",
+      "system": false,
+      "launcher": "com.byd.youtube\/.activity.MainActivity"
+    },
+    {
+      "pkg": "com.stingray.calm.car.byd8155f",
+      "system": false,
+      "launcher": "com.stingray.calm.car.byd8155f\/com.stingray.calm.car.MainActivity"
+    },
+    {
+      "pkg": "com.stingray.karaoke.car.byd8155f",
+      "system": true,
+      "launcher": "com.stingray.karaoke.car.byd8155f\/com.stingray.karaoke.car.ui.splash.SplashActivity"
+    },
+    {
+      "pkg": "com.telenav.scoutivi.spotify.byd",
+      "system": true,
+      "launcher": "com.telenav.scoutivi.spotify.byd\/com.vivid.spotify.MainActivity"
+    },
+    {
+      "pkg": "android",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "android.ext.services",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "android.ext.shared",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.amazon.mp3.automotiveOS",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.bluetooth",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.car",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.car.activityresolver",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.car.developeroptions",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.car.frameworkpackagestubs",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.car.media",
+      "system": true,
+      "launcher": "com.android.car.media\/.MediaDispatcherActivity"
+    },
+    {
+      "pkg": "com.android.car.settings",
+      "system": true,
+      "launcher": "com.android.car.settings\/.Settings_Launcher_Homepage"
+    },
+    {
+      "pkg": "com.android.certinstaller",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.cts.priv.ctsshim",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.hotspot2.osulogin",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.inputmethod.latin",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.keychain",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.launcher3",
+      "system": true,
+      "launcher": "com.android.launcher3\/.home.MainActivity"
+    },
+    {
+      "pkg": "com.android.location.fused",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.modulemetadata",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.networkstack",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.networkstack.permissionconfig",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.networkstack.tethering",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.packageinstaller",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.permissioncontroller",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.phone",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.contacts",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.downloads",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.media",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.media.module",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.settings",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.telephony",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.providers.userdictionary",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.provision",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.proxyhandler",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.server.telecom",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.shell",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.systemui",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.webview",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.android.wifi.resources",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.chris.sharkhub",
+      "system": false,
+      "launcher": "com.chris.sharkhub\/.MainActivity"
+    },
+    {
+      "pkg": "com.core.system.service",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.desay.engmode",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.desaysv.ivi.vds.log",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.desaysv.ivi.vds.upgrade",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.gbox.android",
+      "system": false,
+      "launcher": "com.gbox.android\/.SplashActivity"
+    },
+    {
+      "pkg": "com.idd.hidps",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.iqqijni.car.keyboard",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.neusoft.na.navigation",
+      "system": true,
+      "launcher": "com.neusoft.na.navigation\/com.neusoft.na.mots.MainActivity"
+    },
+    {
+      "pkg": "com.qualcomm.timeservice",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.spotify.music",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.spotify.music.overlay",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.androidauto.app",
+      "system": true,
+      "launcher": "com.ts.androidauto.app\/.display.AapActivity"
+    },
+    {
+      "pkg": "com.ts.androidauto.projectionservice",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.atmospherelamp",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.caradapter",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.cluster",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.engineeringmode",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.pki",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.power",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.appservice.settings",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.avm",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.car.dcm.dccontroller",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.car.ncm",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.carplay",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.carplay.app",
+      "system": true,
+      "launcher": "com.ts.carplay.app\/.ui.display.view.CarPlayDisplayActivity"
+    },
+    {
+      "pkg": "com.ts.dm.service",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.firewall.service",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.ota.otasdkmgr",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.permission",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.ts.qnxapp",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "com.waze",
+      "system": false,
+      "launcher": "com.waze\/.FreeMapAppActivity"
+    },
+    {
+      "pkg": "ts.car.diag",
+      "system": true,
+      "launcher": null
+    },
+    {
+      "pkg": "vendor.qti.hardware.cacert.server",
+      "system": true,
+      "launcher": null
+    }
+  ],
+  "telemetry": {
+    "socPercent": null,
+    "speedKph": null,
+    "outsideTempC": null,
+    "cabinTempC": null,
+    "rangeKm": null,
+    "batt12v": null
+  }
+}

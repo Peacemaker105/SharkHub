@@ -1,0 +1,40 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+app/build/
+installer/build/
+
+# Signing: the release key and its passwords never go in git (see CLAUDE.md -> Build & run -> Signing)
+keystore.properties
+*.jks
+*.keystore
+
+# Meshy source mesh (84 MB) - regenerate from design/model/README.md
+design/model/shark6_full.glb
+tools/model/node_modules/
+tools/model/package-lock.json
+
+design/model/stock_full.glb
+
+# Rejected photo model (#1) stays on disk only
+design/model/shark6_100k.glb
+design/model/shark6_split.glb
+
+# Windows installer build outputs (tools/installer/build.ps1)
+tools/installer/build/
+tools/installer/dist/
+
+# Kept on this PC only, never in the public repo (decided 2026-09-29 before publishing):
+# Chris's own truck photos and the photo-model preview, the raw BYD / press reference images,
+# and the 3D models made from them. The app's own cut-outs and renders (app/src/main/assets) do go up.
+design/model/refs/
+design/model/refs_stock/
+design/model/meshy_preview*.png
+design/model/*.glb

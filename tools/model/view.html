@@ -1,0 +1,105 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shark 6 model check</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1118; overflow: hidden; }
+  #hud { position: fixed; left: 12px; top: 10px; color: #9fd; font: 13px/1.4 monospace; white-space: pre; pointer-events: none; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const hud = document.getElementById('hud');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b1118);
+// studio-style image-based lighting so materials read the way they will in the app
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 1000);
+const controls = new OrbitControls(camera, renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xdfe8ff, 0x223344, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.0);
+sun.position.set(3, 5, 2);
+scene.add(sun);
+const grid = new THREE.GridHelper(20, 40, 0x2b5f7a, 0x16303f);
+scene.add(grid);
+
+let box = null, center = new THREE.Vector3(), radius = 1;
+const file = new URLSearchParams(location.search).get('m') || 'shark6.glb';
+new GLTFLoader().load(file, (g) => {
+  const root = g.scene;
+  scene.add(root);
+  box = new THREE.Box3().setFromObject(root);
+  center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  radius = size.length() / 2;
+  grid.position.y = box.min.y;
+  let tris = 0, meshes = 0;
+  const names = [];
+  root.traverse((o) => {
+    if (o.isMesh) {
+      meshes++;
+      names.push(o.name || '(unnamed)');
+      const idx = o.geometry.index;
+      tris += (idx ? idx.count : o.geometry.attributes.position.count) / 3;
+    }
+  });
+  hud.textContent = `${file}\nmeshes ${meshes}  tris ${Math.round(tris)}\n` +
+    `size ${size.x.toFixed(2)} x ${size.y.toFixed(2)} x ${size.z.toFixed(2)}\n` +
+    `min ${box.min.x.toFixed(2)}, ${box.min.y.toFixed(2)}, ${box.min.z.toFixed(2)}\n` +
+    `max ${box.max.x.toFixed(2)}, ${box.max.y.toFixed(2)}, ${box.max.z.toFixed(2)}\n` +
+    names.slice(0, 8).join(' | ');
+  // split models: wheel_* nodes spin about their own Z (the axle) and the fronts steer about Y
+  wheels = ['wheel_FL', 'wheel_FR', 'wheel_RL', 'wheel_RR'].map((n) => root.getObjectByName(n)).filter(Boolean);
+  if (params.get('tint') && wheels.length) wheels.forEach((w) => w.traverse((o) => { if (o.isMesh) o.material = new THREE.MeshStandardMaterial({ color: 0xff5533, roughness: 0.6 }); }));
+  hud.textContent += `\nwheel nodes: ${wheels.length}`;
+  window.setView(35, 18);
+}, undefined, (e) => { hud.textContent = 'load error: ' + e; });
+const params = new URLSearchParams(location.search);
+let wheels = [], spin = 0, steer = parseFloat(params.get('steer') || '0');
+const autoSpin = params.has('spin');
+const clock = new THREE.Clock();
+window.setWheels = (spinRad, steerRad) => { spin = spinRad; steer = steerRad; };
+
+// setView(azimuth°, elevation°, distance×radius) — driven from outside for screenshots
+window.setView = (azDeg, elDeg, dist) => {
+  const d = (dist || 2.2) * radius;
+  const az = azDeg * Math.PI / 180, el = elDeg * Math.PI / 180;
+  camera.position.set(center.x + d * Math.cos(el) * Math.sin(az), center.y + d * Math.sin(el), center.z + d * Math.cos(el) * Math.cos(az));
+  controls.target.copy(center);
+  controls.update();
+};
+window.modelInfo = () => box ? { min: box.min.toArray(), max: box.max.toArray() } : null;
+
+(function loop() {
+  requestAnimationFrame(loop);
+  const dt = clock.getDelta();
+  if (autoSpin) spin += 2.5 * dt;
+  wheels.forEach((w, i) => w.rotation.set(0, i < 2 ? steer : 0, spin, 'YZX'));
+  controls.update();
+  renderer.render(scene, camera);
+})();
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+</script>
+</body>
+</html>

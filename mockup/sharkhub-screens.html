@@ -1,0 +1,382 @@
+<title>Shark Hub Screens</title>
+<meta name="description" content="UI preview of the BYD Shark 6 head-unit dashboard app">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#0B0D10; --s1:#14171C; --s2:#1D2128; --s3:#272C35; --s4:#30363f;
+    --ink:#F2F4F8; --dim:#9AA3B2; --line:#2a2f38;
+    --accent:#3DDC97; --warn:#FFB454; --hot:#FF5C5C; --blue:#2C6BE0; --ground:#7A4B22;
+    --r:20px;
+    --disp:"Chakra Petch", "Segoe UI", system-ui, sans-serif;
+    --body:"IBM Plex Sans", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--ink); font-family:var(--body); margin:0;
+       -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1200px; margin:0 auto; padding-block:40px; padding-left:20px; padding-right:20px;}
+
+  /* header */
+  .masthead{display:flex; flex-wrap:wrap; align-items:flex-end; gap:16px 28px; margin-bottom:8px;}
+  .brandmark{width:56px;height:56px;border-radius:16px;background:var(--s2);
+       display:grid;place-items:center;flex:none;border:1px solid var(--line)}
+  .brandmark .pod{width:30px;height:18px;border-radius:5px;background:var(--accent);position:relative}
+  .brandmark .pod::before,.brandmark .pod::after{content:"";position:absolute;top:4px;width:8px;height:10px;background:var(--bg);border-radius:2px}
+  .brandmark .pod::before{left:4px}.brandmark .pod::after{right:4px}
+  h1{font-family:var(--disp); font-weight:600; font-size:clamp(30px,5vw,46px);
+     letter-spacing:-.5px; margin:0; text-wrap:balance;}
+  .sub{color:var(--dim); font-size:16px; max-width:60ch; line-height:1.5; margin:6px 0 0;}
+  .legend{display:flex; gap:8px; flex-wrap:wrap; margin-left:auto;}
+  .chip{font-family:var(--disp);font-size:12px;letter-spacing:.5px;text-transform:uppercase;
+     padding:7px 12px;border-radius:999px;border:1px solid var(--line);color:var(--dim);
+     display:flex;align-items:center;gap:7px}
+  .dot{width:9px;height:9px;border-radius:50%}
+
+  .divider{height:1px;background:var(--line);margin:26px 0 30px;border:0}
+
+  /* device frame */
+  .frame{background:linear-gradient(180deg,#05060a,#0d1014); border:1px solid var(--s3);
+     border-radius:26px; padding:12px; box-shadow:0 24px 60px -30px #000, inset 0 0 0 1px #000;}
+  .screen{container-type:inline-size; aspect-ratio:16/10; border-radius:16px; overflow:hidden;
+     background:var(--bg); position:relative; display:flex; flex-direction:column;}
+  .caption{display:flex;align-items:baseline;gap:10px;margin:14px 4px 0;}
+  .caption b{font-family:var(--disp);font-weight:600;font-size:16px;letter-spacing:.3px}
+  .caption span{color:var(--dim);font-size:13px}
+
+  .featured{margin-bottom:34px}
+  .featured .screen{aspect-ratio:16/10.8}
+  .grid{display:grid; grid-template-columns:repeat(2,1fr); gap:30px 26px;}
+  @media (max-width:760px){ .grid{grid-template-columns:1fr} }
+
+  /* ---- shared in-screen primitives (sized in cqw so they scale with the frame) ---- */
+  .scr-pad{padding:3.4cqw; display:flex; flex-direction:column; height:100%;}
+  .statusbar{display:flex; align-items:center; gap:3.4cqw;}
+  .statusbar .b{display:flex;flex-direction:column;margin-right:.6cqw}
+  .statusbar .name{font-family:var(--disp);font-weight:600;font-size:3.6cqw;line-height:1}
+  .statusbar .svc{font-size:2cqw;color:var(--warn);margin-top:.6cqw;font-family:var(--disp);letter-spacing:.3px}
+  .stat{display:flex;flex-direction:column;gap:.3cqw}
+  .stat .l{font-size:1.9cqw;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;font-family:var(--disp)}
+  .stat .v{font-size:3cqw;font-weight:600;font-family:var(--disp);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .stat .v.g{color:var(--accent)}
+
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:1.8cqw;margin-top:2cqw;flex:1;}
+  .tile{background:var(--s2);border-radius:2.4cqw;padding:2cqw;display:flex;flex-direction:column;
+     justify-content:space-between;gap:1cqw}
+  .tile .ic{width:6.2cqw;height:6.2cqw;border-radius:2cqw;display:grid;place-items:center;
+     background:color-mix(in srgb, var(--accent) 16%, transparent);}
+  .tile.warn .ic{background:color-mix(in srgb, var(--warn) 16%, transparent)}
+  .tile.hot .ic{background:color-mix(in srgb, var(--hot) 16%, transparent)}
+  .tile .ic svg{width:4.2cqw;height:4.2cqw}
+  .tile .t{font-family:var(--disp);font-weight:600;font-size:2.6cqw;line-height:1.05}
+  .tile .val{font-size:2.3cqw;color:var(--accent);font-variant-numeric:tabular-nums}
+  .tile.warn .val{color:var(--warn)}
+
+  /* climate */
+  .clim{display:flex;gap:3.4cqw;flex:1;margin-top:1cqw}
+  .dial{flex:1.3;background:var(--s2);border-radius:4cqw;display:flex;flex-direction:column;
+     align-items:center;justify-content:center;gap:2cqw}
+  .dial .cap{font-family:var(--disp);font-size:2.2cqw;color:var(--dim);letter-spacing:.6px;text-transform:uppercase}
+  .dial .row{display:flex;align-items:center;gap:5cqw}
+  .round{width:11cqw;height:11cqw;border-radius:50%;background:var(--s3);display:grid;place-items:center;
+     font-size:6cqw;color:var(--ink);font-family:var(--disp)}
+  .dial .temp{font-family:var(--disp);font-weight:700;font-size:13cqw;line-height:.9;font-variant-numeric:tabular-nums}
+  .climcol{flex:1;display:flex;flex-direction:column;gap:2.6cqw}
+  .fanbox{background:var(--s2);border-radius:4cqw;padding:2.8cqw;flex:1;display:flex;flex-direction:column;justify-content:center;gap:2cqw}
+  .fanbox .cap{font-family:var(--disp);font-size:2.2cqw;color:var(--dim);letter-spacing:.4px}
+  .fanbars{display:flex;gap:1.4cqw}
+  .fanbars i{flex:1;height:6cqw;border-radius:1.6cqw;background:var(--s3)}
+  .fanbars i.on{background:var(--accent)}
+  .togs{display:flex;gap:2.6cqw}
+  .tog{flex:1;background:var(--s2);border-radius:3.4cqw;padding:2.4cqw;display:flex;flex-direction:column;gap:.8cqw}
+  .tog{padding:2cqw}
+  .tog .t{font-family:var(--disp);font-weight:600;font-size:2.4cqw}
+  .tog .st{font-size:2cqw;font-family:var(--disp)}
+  .tog.on .st{color:var(--accent)} .tog .st.off{color:var(--dim)}
+  .tog svg{width:4.2cqw;height:4.2cqw}
+
+  /* inclinometer */
+  .inc{display:flex;gap:3.4cqw;flex:1;margin-top:1cqw}
+  .horizon{flex:1;background:var(--s2);border-radius:4cqw;overflow:hidden;position:relative}
+  .inccol{flex:1;display:flex;flex-direction:column;gap:2.6cqw}
+  .readout{background:var(--s2);border-radius:4cqw;padding:3cqw;flex:1;display:flex;flex-direction:column;justify-content:center}
+  .readout .l{font-family:var(--disp);font-size:2.2cqw;color:var(--dim);letter-spacing:.5px;text-transform:uppercase}
+  .readout .v{font-family:var(--disp);font-weight:700;font-size:9cqw;line-height:1;font-variant-numeric:tabular-nums}
+  .readout .g{color:var(--dim);font-size:2.4cqw}
+  .readout .v.warn{color:var(--warn)}
+
+  /* generic list panels (sideload / bt / probe / settings) */
+  .panel{background:var(--s2);border-radius:3.4cqw;padding:2.4cqw;}
+  .panel + .panel{margin-top:1.8cqw}
+  .ph{display:flex;align-items:center;gap:2cqw;margin-bottom:1.8cqw}
+  .ph svg{width:4.6cqw;height:4.6cqw}
+  .ph b{font-family:var(--disp);font-weight:600;font-size:3cqw}
+  .muted{color:var(--dim);font-size:2.4cqw;line-height:1.45}
+  .bigurl{font-family:var(--disp);font-weight:600;font-size:4.7cqw;color:var(--accent);
+     letter-spacing:.3px;margin:1.2cqw 0}
+  .btn{display:inline-flex;align-items:center;justify-content:center;background:var(--accent);
+     color:#07120C;font-family:var(--disp);font-weight:600;font-size:2.7cqw;padding:2cqw 3.4cqw;
+     border-radius:2.4cqw;margin-top:1.6cqw}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--s4)}
+  .field{border:1px solid var(--s4);border-radius:2.4cqw;padding:2.2cqw;color:var(--dim);
+     font-size:2.5cqw;margin-top:1.4cqw;font-family:var(--body)}
+  .rowitem{display:flex;align-items:center;gap:2.2cqw;padding:2cqw 0;border-top:1px solid var(--line)}
+  .rowitem:first-of-type{border-top:0}
+  .rowitem .ic{width:6.6cqw;height:6.6cqw;border-radius:2cqw;background:var(--s3);display:grid;place-items:center;flex:none}
+  .rowitem .ic svg{width:4cqw;height:4cqw}
+  .rowitem .nm{font-family:var(--disp);font-weight:600;font-size:2.8cqw}
+  .rowitem .meta{font-family:"IBM Plex Mono",monospace;font-size:2.1cqw;color:var(--dim)}
+  .tag{margin-left:auto;font-family:var(--disp);font-size:2.2cqw;padding:.6cqw 1.8cqw;border-radius:999px}
+  .tag.on{color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent)}
+  .tag.off{color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
+  .mono{font-family:"IBM Plex Mono",monospace;font-size:2.35cqw;line-height:1.9;color:var(--ink)}
+  .mono .kw{color:var(--accent)} .mono .dim{color:var(--dim)}
+  .cols2{display:flex;gap:2.6cqw}.cols2>*{flex:1;min-width:0}
+
+  .foot{color:var(--dim);font-size:14px;line-height:1.6;margin-top:34px;max-width:70ch}
+  .foot b{color:var(--ink);font-weight:600}
+  a{color:var(--accent)}
+</style>
+
+<div class="wrap">
+  <div class="masthead">
+    <div class="brandmark"><div class="pod"></div></div>
+    <div>
+      <h1>Shark Hub Screens</h1>
+      <p class="sub">First-pass UI for the sideloaded BYD Shark 6 dashboard. Rendered to the app's
+        real theme so we can judge layout and hierarchy before polishing the visuals.</p>
+    </div>
+    <div class="legend">
+      <span class="chip"><span class="dot" style="background:var(--accent)"></span>accent</span>
+      <span class="chip"><span class="dot" style="background:var(--warn)"></span>warn</span>
+      <span class="chip"><span class="dot" style="background:var(--hot)"></span>critical</span>
+    </div>
+  </div>
+  <hr class="divider">
+
+  <!-- FEATURED: HOME -->
+  <div class="featured">
+    <div class="frame">
+      <div class="screen">
+        <div class="scr-pad">
+          <div class="statusbar">
+            <div class="b">
+              <div class="name">Shark Hub</div>
+              <div class="svc">car service: offline · probe to diagnose</div>
+            </div>
+            <div class="stat"><span class="l">SOC</span><span class="v g">76%</span></div>
+            <div class="stat"><span class="l">Range</span><span class="v">88 km</span></div>
+            <div class="stat"><span class="l">Cabin</span><span class="v">22.5°</span></div>
+            <div class="stat"><span class="l">Outside</span><span class="v">19.0°</span></div>
+            <div class="stat"><span class="l">12V</span><span class="v">13.8V</span></div>
+          </div>
+          <div class="tiles">
+            <!-- row 1 -->
+            <div class="tile"><div class="ic">__ICON_AIR__</div><div class="t">Climate</div><div class="val">22°C</div></div>
+            <div class="tile warn"><div class="ic">__ICON_TERR__</div><div class="t">Inclinometer</div></div>
+            <div class="tile"><div class="ic">__ICON_CAM__</div><div class="t">360 Camera</div></div>
+            <div class="tile"><div class="ic">__ICON_DVR__</div><div class="t">Dashcam</div></div>
+            <!-- row 2 -->
+            <div class="tile"><div class="ic">__ICON_MUS__</div><div class="t">Media</div></div>
+            <div class="tile"><div class="ic">__ICON_BATT__</div><div class="t">Energy</div><div class="val">76%</div></div>
+            <div class="tile"><div class="ic">__ICON_BT__</div><div class="t">Bluetooth</div></div>
+            <div class="tile"><div class="ic">__ICON_DL__</div><div class="t">Sideload</div></div>
+            <!-- row 3 -->
+            <div class="tile warn"><div class="ic">__ICON_TUNE__</div><div class="t">Car Settings</div></div>
+            <div class="tile hot"><div class="ic">__ICON_BUG__</div><div class="t">Service Probe</div></div>
+            <div class="tile warn"><div class="ic">__ICON_SET__</div><div class="t">App Settings</div></div>
+            <div class="tile" style="background:transparent;border:1px dashed var(--s4)">
+              <div class="t" style="color:var(--dim);align-self:center;margin:auto">+ add tile</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption"><b>Home</b><span>customisable tile grid · live status strip · 1 Hz telemetry poll</span></div>
+  </div>
+
+  <div class="grid">
+
+    <!-- CLIMATE -->
+    <div>
+      <div class="frame"><div class="screen"><div class="scr-pad">
+        <div class="statusbar"><div class="b"><div class="name" style="font-size:3.4cqw">Climate</div>
+          <div class="svc" style="color:var(--dim)">connected: systemService:byd_auto</div></div></div>
+        <div class="clim">
+          <div class="dial">
+            <div class="cap">Cabin temperature</div>
+            <div class="row">
+              <div class="round">−</div>
+              <div class="temp">22.5°</div>
+              <div class="round">+</div>
+            </div>
+          </div>
+          <div class="climcol">
+            <div class="fanbox">
+              <div class="cap">FAN · level 3</div>
+              <div class="fanbars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i></div>
+            </div>
+            <div class="togs">
+              <div class="tog on">__ICON_AC__<div class="t">A/C</div><div class="st">ON</div></div>
+              <div class="tog">__ICON_SEAT__<div class="t">Seat heat</div><div class="st off">level 2</div></div>
+            </div>
+          </div>
+        </div>
+      </div></div></div>
+      <div class="caption"><b>Climate</b><span>every command reports ✓ / ✗ so you can verify the mapping</span></div>
+    </div>
+
+    <!-- INCLINOMETER -->
+    <div>
+      <div class="frame"><div class="screen"><div class="scr-pad">
+        <div class="statusbar"><div class="b"><div class="name" style="font-size:3.4cqw">Inclinometer</div>
+          <div class="svc" style="color:var(--dim)">live from device sensors</div></div></div>
+        <div class="inc">
+          <div class="horizon">
+            <svg viewBox="0 0 200 160" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
+              <g transform="rotate(11.5 100 80)">
+                <rect x="-120" y="-90" width="440" height="170" fill="#2C6BE0"/>
+                <rect x="-120" y="80" width="440" height="170" fill="#7A4B22"/>
+                <line x1="-120" y1="80" x2="320" y2="80" stroke="#fff" stroke-width="2"/>
+                <line x1="60" y1="55" x2="140" y2="55" stroke="#ffffffb0" stroke-width="1.3"/>
+                <line x1="60" y1="105" x2="140" y2="105" stroke="#ffffffb0" stroke-width="1.3"/>
+              </g>
+              <line x1="70" y1="80" x2="90" y2="80" stroke="#3DDC97" stroke-width="3.4"/>
+              <line x1="110" y1="80" x2="130" y2="80" stroke="#3DDC97" stroke-width="3.4"/>
+              <circle cx="100" cy="80" r="3.2" fill="#3DDC97"/>
+            </svg>
+          </div>
+          <div class="inccol">
+            <div class="readout"><div class="l">Pitch</div><div class="v">+4.2°</div><div class="g">+7% grade</div></div>
+            <div class="readout"><div class="l">Roll</div><div class="v warn">−11.5°</div><div class="g">−20% grade</div></div>
+          </div>
+        </div>
+      </div></div></div>
+      <div class="caption"><b>Inclinometer</b><span>artificial horizon · roll goes amber &gt;20°, red &gt;30° · tap to zero</span></div>
+    </div>
+
+    <!-- SIDELOAD -->
+    <div>
+      <div class="frame"><div class="screen"><div class="scr-pad">
+        <div class="statusbar"><div class="b"><div class="name" style="font-size:3.4cqw">Sideload</div>
+          <div class="svc" style="color:var(--dim)">install apps without a PC</div></div></div>
+        <div style="margin-top:1.4cqw;overflow:hidden">
+          <div class="panel">
+            <div class="ph">__ICON_WIFI__<b>Wi-Fi upload</b></div>
+            <div class="muted">Open this address on any device on the same Wi-Fi, drag in an APK.</div>
+            <div class="bigurl">http://192.168.4.21:8080</div>
+            <span class="btn" style="margin-top:.6cqw">Stop server</span>
+          </div>
+          <div class="panel">
+            <div class="ph" style="margin-bottom:.6cqw"><b>Local APK files</b></div>
+            <div class="rowitem" style="padding:1.4cqw 0"><div class="nm">ReVancedManager.apk</div><span class="tag" style="color:var(--accent)">18 MB</span></div>
+            <div class="rowitem" style="padding:1.4cqw 0"><div class="nm">AuroraStore-4.6.apk</div><span class="tag" style="color:var(--accent)">11 MB</span></div>
+          </div>
+        </div>
+      </div></div></div>
+      <div class="caption"><b>Sideload</b><span>Wi-Fi drop · install-from-URL · local files — all via PackageInstaller</span></div>
+    </div>
+
+    <!-- BLUETOOTH -->
+    <div>
+      <div class="frame"><div class="screen"><div class="scr-pad">
+        <div class="statusbar"><div class="b"><div class="name" style="font-size:3.4cqw">Bluetooth input</div>
+          <div class="svc" style="color:var(--dim)">mice · keyboards · gamepads</div></div></div>
+        <div class="cols2" style="margin-top:1.4cqw;flex:1">
+          <div>
+            <div class="muted" style="font-family:var(--disp);color:var(--ink);font-weight:600;font-size:2.8cqw;margin-bottom:1cqw">Paired</div>
+            <div class="rowitem"><div class="ic">__ICON_PAD__</div><div><div class="nm">8BitDo Pro 2</div><div class="meta">E4:17:D8 · gamepad</div></div><span class="tag on">input</span></div>
+            <div class="rowitem"><div class="ic">__ICON_KEY__</div><div><div class="nm">Logi K380</div><div class="meta">88:C6:26 · keyboard</div></div><span class="tag on">input</span></div>
+          </div>
+          <div>
+            <div class="muted" style="font-family:var(--disp);color:var(--ink);font-weight:600;font-size:2.8cqw;margin-bottom:1cqw">Discovered</div>
+            <div class="rowitem"><div class="ic">__ICON_MOUSE__</div><div><div class="nm">MX Anywhere 3</div><div class="meta">C4:41:1E · mouse</div></div></div>
+          </div>
+        </div>
+        <div class="muted" style="font-size:2.1cqw;margin-top:1cqw">Pairing bonds a device; whether the head unit accepts it as live input is an OS decision — see README.</div>
+      </div></div></div>
+      <div class="caption"><b>Bluetooth</b><span>scan · classify · route to system pairing for HID devices</span></div>
+    </div>
+
+    <!-- PROBE -->
+    <div>
+      <div class="frame"><div class="screen"><div class="scr-pad">
+        <div class="statusbar"><div class="b"><div class="name" style="font-size:3.4cqw">Service Probe</div>
+          <div class="svc" style="color:var(--dim)">backend: systemService:byd_auto · 81 methods</div></div></div>
+        <div class="cols2" style="margin-top:1.4cqw;flex:1;overflow:hidden">
+          <div class="panel" style="overflow:hidden">
+            <div class="field" style="margin-top:0">filter: temp</div>
+            <div class="mono" style="margin-top:1.4cqw">
+              <span class="dim">void</span> setAcTemperature(<span class="kw">float</span>)<br>
+              <span class="dim">float</span> getAcTemperature()<br>
+              <span class="dim">void</span> setAcWindLevel(<span class="kw">int</span>)<br>
+              <span class="dim">void</span> setSeatHeatLevel(<span class="kw">int</span>,<span class="kw">int</span>)<br>
+              <span class="dim">int</span> getSocValue()
+            </div>
+          </div>
+          <div class="panel">
+            <div class="ph"><b style="font-size:2.7cqw">Native packages</b></div>
+            <div class="rowitem"><div><div class="nm" style="font-size:2.6cqw">360 Camera</div><div class="meta">com.byd.panorama</div></div><span class="tag on">installed</span></div>
+            <div class="rowitem"><div><div class="nm" style="font-size:2.6cqw">Dashcam</div><div class="meta">com.byd.dvr</div></div><span class="tag on">installed</span></div>
+            <div class="rowitem"><div><div class="nm" style="font-size:2.6cqw">Energy</div><div class="meta">com.byd.energy</div></div><span class="tag off">missing</span></div>
+          </div>
+        </div>
+      </div></div></div>
+      <div class="caption"><b>Service Probe</b><span>enumerate the real API on YOUR firmware, then wire names in</span></div>
+    </div>
+
+    <!-- SETTINGS / OTA -->
+    <div>
+      <div class="frame"><div class="screen"><div class="scr-pad">
+        <div class="statusbar"><div class="b"><div class="name" style="font-size:3.4cqw">Settings &amp; Updates</div>
+          <div class="svc" style="color:var(--dim)">installed build: v1</div></div></div>
+        <div style="margin-top:1.4cqw">
+          <div class="panel">
+            <div class="ph"><b>Over-the-air update</b></div>
+            <div class="field" style="margin-top:0">https://…/sharkhub/latest.json</div>
+            <div style="display:flex;gap:2cqw;align-items:center;margin-top:2cqw">
+              <span class="btn" style="margin-top:0">Check for updates</span>
+              <span style="color:var(--accent);font-family:var(--disp);font-size:2.6cqw">Update available: v0.2.0</span>
+            </div>
+            <div class="mono dim" style="font-size:2.1cqw;margin-top:1.6cqw">seat vent + map probe · build 2</div>
+            <div style="height:2.4cqw;background:var(--s3);border-radius:1.6cqw;margin-top:1.8cqw;overflow:hidden">
+              <div style="height:100%;width:64%;background:var(--accent)"></div></div>
+            <div class="muted" style="font-size:2.1cqw;margin-top:1cqw">Downloading… 64%</div>
+          </div>
+        </div>
+      </div></div></div>
+      <div class="caption"><b>Settings &amp; OTA</b><span>point at a manifest, push updates without ADB each time</span></div>
+    </div>
+
+  </div>
+
+  <p class="foot"><b>What this is.</b> A faithful render of the app's screens in its real dark theme —
+    layout, hierarchy and the instrument-cluster type treatment. It is a preview, not the running app.
+    The functional Android project (Kotlin + Compose) is in the delivered <b>Shark Hub</b> zip and builds
+    in Android Studio. <b>Next:</b> polish the visuals — spacing, the tile iconography, the horizon
+    gauge, and a considered accent system for warnings.</p>
+</div>
+
+<script>
+  // Inline SVG icons injected by placeholder so the markup above stays readable.
+  const I = {
+    AIR:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h15a3 3 0 1 1-3 3"/><path d="M3 16h9a2.5 2.5 0 1 1-2.5 2.5"/></svg>',
+    TERR:'<svg viewBox="0 0 24 24" fill="none" stroke="#FFB454" stroke-width="2" stroke-linejoin="round"><path d="M3 20l6-9 4 5 3-4 5 8z"/></svg>',
+    CAM:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>',
+    DVR:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>',
+    MUS:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="17" r="2.5"/><circle cx="18" cy="15" r="2.5"/><path d="M9.5 17V6l11-2v11"/></svg>',
+    BATT:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linejoin="round"><rect x="3" y="8" width="15" height="8" rx="2"/><path d="M21 11v2"/><path d="M10 9l-2 3h3l-2 3"/></svg>',
+    BT:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linejoin="round"><path d="M7 8l10 8-5 4V4l5 4L7 16"/></svg>',
+    DL:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><path d="M12 3v10m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>',
+    TUNE:'<svg viewBox="0 0 24 24" fill="none" stroke="#FFB454" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
+    BUG:'<svg viewBox="0 0 24 24" fill="none" stroke="#FF5C5C" stroke-width="2" stroke-linecap="round"><rect x="8" y="8" width="8" height="10" rx="4"/><path d="M12 4v4M5 9l3 2M19 9l-3 2M4 15h4M16 15h4M7 20l2-2M17 20l-2-2"/></svg>',
+    SET:'<svg viewBox="0 0 24 24" fill="none" stroke="#FFB454" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>',
+    AC:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M4 8l16 8M20 8L4 16M12 3l-2 3M12 3l2 3M4 8l.5 3.4M20 8l-.5 3.4"/></svg>',
+    SEAT:'<svg viewBox="0 0 24 24" fill="none" stroke="#9AA3B2" stroke-width="2" stroke-linejoin="round"><path d="M7 4v9h7l3 7"/><path d="M7 13H5l1 7"/></svg>',
+    WIFI:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8 15.5a5 5 0 0 1 8 0"/><circle cx="12" cy="19" r="1"/></svg>',
+    PAD:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><rect x="2" y="8" width="20" height="9" rx="4"/><path d="M7 12v2M6 13h2M15 12h.01M18 14h.01"/></svg>',
+    KEY:'<svg viewBox="0 0 24 24" fill="none" stroke="#3DDC97" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>',
+    MOUSE:'<svg viewBox="0 0 24 24" fill="none" stroke="#9AA3B2" stroke-width="2"><rect x="6" y="3" width="12" height="18" rx="6"/><path d="M12 7v4"/></svg>'
+  };
+  document.body.innerHTML = document.body.innerHTML.replace(/__ICON_(\w+)__/g, (m,k)=> I[k] || '');
+</script>

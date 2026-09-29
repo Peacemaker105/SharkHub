@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shark 6 cel-shaded views</title>
+<style>
+  html, body { margin: 0; background: #0b1118; color: #9fd; font: 13px/1.4 monospace; }
+  #hud { position: fixed; left: 12px; top: 10px; white-space: pre; pointer-events: none; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// Flat, cel-shaded orthographic views of the split Shark model for the inclinometer: the texture
+// stays (windows, lights and grille read), lit in four tones, crease lines drawn dark; the
+// silhouette outline and desaturation happen afterwards in Pillow (toon_post.py).
+const params = new URLSearchParams(location.search);
+const W = parseInt(params.get('w') || '1800', 10), H = parseInt(params.get('h') || '1000', 10);
+const hud = document.getElementById('hud');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const key = new THREE.DirectionalLight(0xffffff, 2.0);
+scene.add(key);
+
+// four-tone ramp for MeshToonMaterial
+const tones = new Uint8Array([70, 130, 195, 245]);
+const ramp = new THREE.DataTexture(tones, 4, 1, THREE.RedFormat);
+ramp.minFilter = THREE.NearestFilter; ramp.magFilter = THREE.NearestFilter; ramp.needsUpdate = true;
+
+const gltf = await new Promise((res, rej) => new GLTFLoader().load(params.get('m') || 'stock_full_split.glb', res, undefined, rej));
+const root = gltf.scene;
+scene.add(root);
+const edgeAngle = parseFloat(params.get('edge') || '40');
+const edgeMat = new THREE.LineBasicMaterial({ color: 0x101418, transparent: true, opacity: 0.85 });
+root.traverse((o) => {
+  if (!o.isMesh) return;
+  const old = o.material;
+  o.material = new THREE.MeshToonMaterial({ color: 0xffffff, map: old.map || null, gradientMap: ramp });
+  if (params.get('edges') !== '0') {
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, edgeAngle), edgeMat);
+    e.position.copy(o.position); e.quaternion.copy(o.quaternion); e.scale.copy(o.scale);
+    o.parent.add(e);
+  }
+});
+
+const box3 = new THREE.Box3().setFromObject(root);
+const centre = box3.getCenter(new THREE.Vector3());
+const size = box3.getSize(new THREE.Vector3());
+hud.textContent = 'size ' + size.x.toFixed(2) + ' ' + size.y.toFixed(2) + ' ' + size.z.toFixed(2);
+
+// ---- orthographic views: dir = +z / -z (flanks), +x / -x (ends) ----
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
+function look(dir) {
+  const d = { pz: [0, 0, 1], nz: [0, 0, -1], px: [1, 0, 0], nx: [-1, 0, 0] }[dir];
+  const across = dir === 'pz' || dir === 'nz' ? size.x : size.z;
+  // wide enough for the car's length, and tall enough for its height on the end views
+  const half = Math.max(across * 0.56, size.y * 0.56 * W / H), halfH = half * H / W;
+  camera.left = -half; camera.right = half; camera.top = halfH; camera.bottom = -halfH;
+  camera.position.set(centre.x + d[0] * 20, centre.y + 0.04, centre.z + d[2] * 20);
+  camera.lookAt(centre);
+  camera.updateProjectionMatrix();
+  // key light: above, a little toward the camera and to screen-left, so the roof and the upper
+  // flank take the light tone and the sills fall into shade
+  const toCam = new THREE.Vector3(d[0], 0, d[2]);
+  const left = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), toCam);
+  key.position.copy(centre).addScaledVector(toCam, 6).addScaledVector(left, 4).add(new THREE.Vector3(0, 9, 0));
+  key.target.position.copy(centre); scene.add(key.target);
+}
+
+// ---- capture: render, crop to the opaque box, POST ----
+const work = document.createElement('canvas'); work.width = W; work.height = H;
+const wctx = work.getContext('2d', { willReadFrequently: true });
+async function capture(name) {
+  renderer.render(scene, camera);
+  wctx.clearRect(0, 0, W, H);
+  wctx.drawImage(renderer.domElement, 0, 0);
+  const d = wctx.getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (d[(y * W + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return null;
+  x0 = Math.max(0, x0 - 4); y0 = Math.max(0, y0 - 4); x1 = Math.min(W - 1, x1 + 4); y1 = Math.min(H - 1, y1 + 4);
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+  const crop = document.createElement('canvas'); crop.width = cw; crop.height = ch;
+  crop.getContext('2d').drawImage(work, x0, y0, cw, ch, 0, 0, cw, ch);
+  const url = crop.toDataURL('image/png');
+  const r = await fetch('/save?name=' + encodeURIComponent(name + '.png'), { method: 'POST', body: url });
+  hud.textContent = name + ' ' + cw + 'x' + ch + ' ' + await r.text();
+  return { w: cw, h: ch };
+}
+
+window.toon = async (dir, name) => { look(dir); return capture(name || ('toon_' + dir)); };
+window.toonAll = async () => { const out = {}; for (const dir of ['pz', 'nz', 'px', 'nx']) out[dir] = await window.toon(dir); hud.textContent = JSON.stringify(out); return out; };
+look(params.get('dir') || 'pz');
+renderer.render(scene, camera);
+if (params.get('auto') === '1') await window.toonAll();
+</script>
+</body>
+</html>

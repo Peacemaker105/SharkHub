@@ -1,0 +1,9 @@
+﻿# adb shell getprop / wm (2026-09-28)
+ro.build.version.release=11 (sdk 30)
+ro.build.display.id=SOC_260811_S
+ro.build.fingerprint=BYDAuto/DX_BYD_AUTO/DX_BYD_AUTO:11/RQ3A.211001.001/eng.scm.20260811.020334:user/dev-keys
+ro.board.platform=msmnile (SA8155P)
+display=1920x1080 @ 240dpi (1280x720 dp); was in portrait (ROTATION_270) at the time
+locale=en-US timezone=Australia/Perth
+head unit maker: Desay SV (com.desaysv.* vehicle services)
+adb: TCP 5555 open over Wi-Fi (the menu only shows USB debugging)

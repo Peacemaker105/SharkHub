@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="ota_cache" path="ota/" />
+    <files-path name="ota_files" path="ota/" />
+    <external-files-path name="ota_ext" path="ota/" />
+    <external-files-path name="probe_export" path="export/" />
+</paths>

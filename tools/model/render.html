@@ -1,0 +1,305 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shark 6 layer renderer</title>
+<style>
+  html, body { margin: 0; background: #0b1118; color: #9fd; font: 13px/1.4 monospace; }
+  #hud { position: fixed; left: 12px; top: 10px; white-space: pre; pointer-events: none; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+// Renders the split car model as separate transparent layers from one fixed camera:
+//   body   — white ghost + edge lines (tinted in-app with the theme colour)
+//   drive  — battery / engine / motors / axles / driveshaft / rails, lit white (tinted in-app)
+//   wheel_XX_NN — each wheel at NN of PHASES spin positions (kept textured: tyres + alloys are neutral)
+// plus meta.json with every layer's crop box and the projected anchor points for callouts.
+const params = new URLSearchParams(location.search);
+const W = parseInt(params.get('w') || '1600', 10), H = parseInt(params.get('h') || '900', 10);
+const hud = document.getElementById('hud');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(-2, 4, -3);
+scene.add(sun);
+const camera = new THREE.PerspectiveCamera(parseFloat(params.get('fov') || '26'), W / H, 0.01, 3000);
+
+const wp = await (await fetch(params.get('p') || 'wheel_params_stock.json')).json();
+const gltf = await new Promise((res, rej) => new GLTFLoader().load(params.get('m') || 'stock_split.glb', res, undefined, rej));
+const root = gltf.scene;
+scene.add(root);
+const body = root.getObjectByName('body');
+const wheelNames = ['FL', 'FR', 'RL', 'RR'];
+const wheels = Object.fromEntries(wheelNames.map((n) => [n, root.getObjectByName('wheel_' + n)]));
+
+// ---- ghost body: white translucent shell + silhouette/crease edges ----
+// Thin, front faces only: the interior of a scanned mesh has extra shells, and each translucent layer
+// stacks up — the wheels and driveline must stay readable through the body.
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.05, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.FrontSide });
+const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+const edges = new THREE.Group();
+// Crease threshold: a dense scanned mesh needs a higher angle than a decimated one or it turns to noise.
+const edgeAngle = parseFloat(params.get('edge') || '32');
+body.traverse((o) => {
+  if (!o.isMesh) return;
+  o.userData.solidMat = o.material;
+  o.material = ghostMat;
+  const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, edgeAngle), edgeMat);
+  e.position.copy(o.position); e.quaternion.copy(o.quaternion); e.scale.copy(o.scale);
+  edges.add(e);
+});
+body.add(edges);
+
+// ---- driveline: BYD's rolling-chassis model when given (d=…&q=…), else primitives ----
+let drive = new THREE.Group();
+const dMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.2, emissive: 0x444444 });
+const hot = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.2, emissive: 0x777777 });
+function box(w, h, d, x, y, z, m = dMat) { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); drive.add(b); return b; }
+function cyl(r, len, x, y, z, axis, m = dMat) {
+  const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 24), m);
+  if (axis === 'z') c.rotation.x = Math.PI / 2; else if (axis === 'x') c.rotation.z = Math.PI / 2;
+  c.position.set(x, y, z); drive.add(c); return c;
+}
+const ay = wp.axleY, fx = wp.frontX, rx = wp.rearX, tr = wp.track, g = wp.ground;
+const midX = (fx + rx) / 2, wb = rx - fx;
+cyl(0.012, tr * 2, fx, ay, 0, 'z');                                   // front axle
+cyl(0.012, tr * 2, rx, ay, 0, 'z');                                   // rear axle
+cyl(0.010, wb * 0.72, midX, ay + 0.02, 0, 'x');                       // driveshaft
+box(wb * 0.62, 0.05, tr * 1.3, midX + 0.02, ay - 0.02, 0, hot);       // blade battery under the floor
+box(0.20, 0.17, 0.26, fx - 0.09, ay + 0.12, 0);                        // 1.5T engine ahead of the front axle
+cyl(0.05, 0.16, fx + 0.12, ay + 0.06, 0, 'z', hot);                    // front e-motor
+cyl(0.06, 0.18, rx - 0.02, ay + 0.03, 0, 'z', hot);                    // rear e-motor
+for (const s of [-1, 1]) box(1.75, 0.025, 0.02, midX, ay - 0.05, s * tr * 0.55);   // chassis rails
+scene.add(drive);
+if (params.get('d')) {
+  // Real driveline: the split chassis model with its wheels hidden, flipped if its nose is +X,
+  // scaled so the wheelbases match, and stood on the body's ground plane.
+  const cp = await (await fetch(params.get('q') || 'wheel_params_chassis.json')).json();
+  const cg = (await new Promise((res, rej) => new GLTFLoader().load(params.get('d'), res, undefined, rej))).scene;
+  cg.traverse((o) => { if (o.name && o.name.startsWith('wheel_')) o.visible = false; });
+  const flip = params.get('flip') !== '0';
+  const sc = (wp.rearX - wp.frontX) / (cp.rearX - cp.frontX);
+  const cFront = flip ? -cp.rearX : cp.frontX;
+  const wrap = new THREE.Group();
+  cg.rotation.y = flip ? Math.PI : 0;
+  wrap.add(cg);
+  wrap.scale.setScalar(sc);
+  wrap.position.set(wp.frontX - cFront * sc, wp.ground - cp.ground * sc, 0);
+  scene.remove(drive);
+  drive = wrap;
+  scene.add(drive);
+  hud.textContent = 'chassis loaded: scale ' + sc.toFixed(4) + ' flip ' + flip;
+}
+
+// ---- modelled scene: sealed two-lane road, gravel verge, scrub plain, sky billboard ----
+// Same camera as the truck, so lane width, perspective and horizon agree by construction. The truck
+// sits in the LEFT lane (Australia): its centreline is z = 0, the road's centre line is on its right
+// (-Z), which is the camera side.
+const UPM = 1 / 2.88;                                   // model units per metre
+const ROAD = {
+  laneW: 3.5 * UPM, centerZ: -1.75 * UPM,
+  edgeLeftZ: (1.75 + 0.15) * UPM, edgeRightZ: -(1.75 * 3 + 0.15) * UPM,
+  sealedLeftZ: (1.75 + 0.9) * UPM, sealedRightZ: -(1.75 * 3 + 0.9) * UPM,
+  dashLenU: 3 * UPM, dashPeriodU: 12 * UPM, lineWU: 0.1 * UPM,
+  postSpacingU: 100 * UPM, postLeftZ: (1.75 + 1.6) * UPM, postRightZ: -(1.75 * 3 + 1.6) * UPM, postHeightU: 1.2 * UPM,
+};
+const sceneGroup = new THREE.Group();
+function noiseTexture(w, h, base, spread, paint) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); const img = g.createImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    const n = (Math.random() - 0.5) * spread;
+    img.data[i * 4] = base[0] + n; img.data[i * 4 + 1] = base[1] + n; img.data[i * 4 + 2] = base[2] + n; img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  if (paint) paint(g, w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+if (params.get('scene') !== '0') {
+  const gy = wp.ground - 0.002;
+  // scrub plain: fine grain plus darker bush blobs so it isn't a flat brown sheet (tile ≈ 21 m)
+  const earth = noiseTexture(512, 512, [46, 33, 28], 22, (g, w, h) => {
+    for (let i = 0; i < 260; i++) {
+      const r = 3 + Math.random() * 9;
+      g.fillStyle = `rgba(${18 + Math.random() * 14 | 0},${20 + Math.random() * 12 | 0},${16 + Math.random() * 10 | 0},${0.55 + Math.random() * 0.35})`;
+      g.beginPath(); g.ellipse(Math.random() * w, Math.random() * h, r * 1.6, r, Math.random() * 3, 0, Math.PI * 2); g.fill();
+    }
+  });
+  earth.repeat.set(160, 160);
+  const plain = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshStandardMaterial({ map: earth, roughness: 1 }));
+  plain.rotation.x = -Math.PI / 2; plain.position.y = gy - 0.004;
+  sceneGroup.add(plain);
+  // sealed road: texture V runs across the road (sealedRight → sealedLeft), U along the road
+  const roadW = ROAD.sealedLeftZ - ROAD.sealedRightZ;
+  const road = noiseTexture(1024, 512, [34, 35, 38], 14, (g, w, h) => {
+    const pxPerU = h / roadW;
+    for (const z of [ROAD.edgeLeftZ, ROAD.edgeRightZ]) {
+      const v = (z - ROAD.sealedRightZ) * pxPerU;
+      g.fillStyle = 'rgba(225,225,220,0.85)';
+      g.fillRect(0, h - v - ROAD.lineWU * pxPerU / 2, w, ROAD.lineWU * pxPerU);
+    }
+  });
+  road.repeat.set(300, 1);
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(1200, roadW), new THREE.MeshStandardMaterial({ map: road, roughness: 0.95 }));
+  strip.rotation.x = -Math.PI / 2; strip.position.set(0, gy, (ROAD.sealedLeftZ + ROAD.sealedRightZ) / 2);
+  sceneGroup.add(strip);
+  // gravel shoulders either side of the seal
+  const gravel = noiseTexture(256, 256, [88, 70, 58], 34); gravel.repeat.set(300, 2);
+  for (const [z0, z1] of [[ROAD.sealedLeftZ, ROAD.sealedLeftZ + 1.2 * UPM], [ROAD.sealedRightZ - 1.2 * UPM, ROAD.sealedRightZ]]) {
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(1200, z1 - z0), new THREE.MeshStandardMaterial({ map: gravel, roughness: 1 }));
+    sh.rotation.x = -Math.PI / 2; sh.position.set(0, gy - 0.001, (z0 + z1) / 2);
+    sceneGroup.add(sh);
+  }
+  // sky + distant ranges from the AI plate, on a billboard far down the view direction
+  const skyTex = await new Promise((res) => new THREE.TextureLoader().load(params.get('sky') || 'sky.png', res));
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  const sky = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100 * skyTex.image.height / skyTex.image.width), new THREE.MeshBasicMaterial({ map: skyTex, fog: false }));
+  sceneGroup.add(sky);
+  sceneGroup.userData.sky = sky;
+  // haze that carries the plain into the plate's horizon tone (sampled from the plate: 26,24,31)
+  scene.fog = new THREE.Fog(0x1a181f, 25, 320);
+  scene.add(sceneGroup);
+}
+
+// ---- framing ----
+const box3 = new THREE.Box3().setFromObject(root);
+const centre = box3.getCenter(new THREE.Vector3());
+const radius = box3.getSize(new THREE.Vector3()).length() / 2;
+let az = 225, el = 12, dist = 2.05;
+function frame(a, e, d) {
+  az = a; el = e; dist = d;
+  const dd = d * radius, ar = a * Math.PI / 180, er = e * Math.PI / 180;
+  camera.position.set(centre.x + dd * Math.cos(er) * Math.sin(ar), centre.y + dd * Math.sin(er), centre.z + dd * Math.cos(er) * Math.cos(ar));
+  camera.lookAt(centre);
+  camera.updateProjectionMatrix();
+  // keep the sky billboard square to the camera, its bottom edge on the ground at the horizon
+  const sky = sceneGroup.userData.sky;
+  if (sky) {
+    const dir = new THREE.Vector3().subVectors(centre, camera.position).setY(0).normalize();
+    sky.position.copy(centre).addScaledVector(dir, 900);
+    sky.position.y = wp.ground + sky.geometry.parameters.height / 2 - 2;
+    sky.lookAt(camera.position.x, sky.position.y, camera.position.z);
+  }
+}
+/** Ground-plane (x, z at y = ground) → canvas pixel homography, by DLT on four projected points. */
+function groundHomography() {
+  const src = [[-3, -3], [3, -3], [3, 3], [-3, 3]];
+  const dst = src.map(([x, z]) => project(x, wp.ground, z));
+  const M = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = src[i], [u, v] = dst[i];
+    M.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u]);
+    M.push([0, 0, 0, x, y, 1, -v * x, -v * y, v]);
+  }
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < 8; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; for (let k = c; k <= 8; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((row, i) => row[8] / row[i]).concat([1]);
+}
+function project(x, y, z) {
+  const v = new THREE.Vector3(x, y, z).project(camera);
+  return [Math.round((v.x + 1) / 2 * W * 10) / 10, Math.round((1 - v.y) / 2 * H * 10) / 10];
+}
+
+// ---- layer visibility ----
+function show(layer) {
+  body.visible = layer === 'body' || layer === 'all';
+  drive.visible = layer === 'drive' || layer === 'all';
+  for (const n of wheelNames) wheels[n].visible = layer === 'all' || layer === 'wheel_' + n;
+  sceneGroup.visible = layer === 'bg' || layer === 'all';
+}
+function setSpin(rad) { for (const n of wheelNames) wheels[n].rotation.set(0, 0, rad, 'YZX'); }
+
+// ---- capture: render, crop to the opaque box, POST ----
+const work = document.createElement('canvas'); work.width = W; work.height = H;
+const wctx = work.getContext('2d', { willReadFrequently: true });
+async function capture(name) {
+  renderer.render(scene, camera);
+  wctx.clearRect(0, 0, W, H);
+  wctx.drawImage(renderer.domElement, 0, 0);
+  const d = wctx.getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (d[(y * W + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return null;
+  x0 = Math.max(0, x0 - 2); y0 = Math.max(0, y0 - 2); x1 = Math.min(W - 1, x1 + 2); y1 = Math.min(H - 1, y1 + 2);
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+  const crop = document.createElement('canvas'); crop.width = cw; crop.height = ch;
+  crop.getContext('2d').drawImage(work, x0, y0, cw, ch, 0, 0, cw, ch);
+  const url = crop.toDataURL('image/png');
+  const r = await fetch('/save?name=' + encodeURIComponent(name + '.png'), { method: 'POST', body: url });
+  hud.textContent = name + ' ' + cw + 'x' + ch + ' ' + await r.text();
+  return { x: x0, y: y0, w: cw, h: ch };
+}
+
+// ---- the job ----
+window.renderAll = async (a = 225, e = 12, d = 2.05, phases = 12, tag = 'v1') => {
+  frame(a, e, d);
+  setSpin(0);
+  const meta = { tag, canvas: [W, H], view: { az: a, el: e, dist: d, fov: camera.fov }, phases, layers: {}, wheels: {}, anchors: {} };
+  show('body'); meta.layers.body = await capture(tag + '_body');
+  // the painted shell, for the app's x-ray slider
+  window.solid(true); meta.layers.bodySolid = await capture(tag + '_body_solid'); window.solid(false);
+  show('drive'); meta.layers.drive = await capture(tag + '_drive');
+  if (sceneGroup.children.length) {
+    show('bg'); meta.layers.bg = await capture(tag + '_bg');
+    meta.groundH = groundHomography();
+    meta.road = Object.assign({ unitsPerM: UPM, ground: wp.ground }, ROAD);
+  }
+  for (const n of wheelNames) {
+    show('wheel_' + n); meta.wheels[n] = { hub: project(wheels[n].position.x, wheels[n].position.y, wheels[n].position.z), frames: [] };
+    for (let p = 0; p < phases; p++) { setSpin(p / phases * 2 * Math.PI); meta.wheels[n].frames.push(await capture(`${tag}_wheel_${n}_${String(p).padStart(2, '0')}`)); }
+  }
+  setSpin(0);
+  meta.anchors = {
+    battery: project(midX + 0.02, ay - 0.02, 0), engine: project(fx - 0.09, ay + 0.12, 0),
+    frontMotor: project(fx + 0.12, ay + 0.06, 0), rearMotor: project(rx - 0.02, ay + 0.03, 0),
+    nose: project(box3.min.x, ay + 0.1, 0), tail: project(box3.max.x, ay + 0.1, 0),
+    roof: project(centre.x, box3.max.y, 0),
+    groundFront: project(fx, g, -tr), groundRear: project(rx, g, -tr), groundFrontFar: project(fx, g, tr), groundRearFar: project(rx, g, tr),
+    pivot: project(midX, g, 0),
+  };
+  meta.unitsPerPx = (box3.max.x - box3.min.x) / Math.abs(meta.anchors.nose[0] - meta.anchors.tail[0]);
+  await fetch('/save?name=' + encodeURIComponent(tag + '_meta.json'), { method: 'POST', body: JSON.stringify(meta, null, 1) });
+  show('all');
+  renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0);
+  hud.textContent = 'done ' + tag + ' — ' + (2 + 4 * phases) + ' layers';
+  return meta;
+};
+window.preview = (a = az, e = el, d = dist, spin = 0) => { frame(a, e, d); show('all'); setSpin(spin); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+window.solid = (on) => { body.traverse((o) => { if (o.isMesh && o.userData.solidMat) o.material = on ? o.userData.solidMat : ghostMat; }); edges.visible = !on; return 'ok'; };
+
+frame(az, el, dist);
+window.preview();
+hud.textContent = 'ready — renderAll(az, el, dist, phases, tag) | preview(az, el, dist, spin) | solid(bool)';
+</script>
+</body>
+</html>

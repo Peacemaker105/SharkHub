@@ -1,0 +1,11 @@
+# Keep scripts runnable whatever core.autocrlf says (Git for Windows defaults it to true).
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Binaries
+*.png binary
+*.jpg binary
+*.webp binary
+*.jar binary
+*.apk binary
