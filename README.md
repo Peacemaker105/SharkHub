@@ -125,6 +125,11 @@ releases bundle JDK 25, which Gradle 8.9 can't run on. Set *Settings → Build, 
 
 On Windows use `.\gradlew.bat`. The first sync downloads the Android Gradle Plugin and libraries.
 
+The camera probe in `app/src/main/cpp` is switched on in `gradle.properties`. That means the first
+build also downloads the Android NDK and CMake, about 1.5 GB. To skip it, add
+`-Psharkhub.nativeCam=false` to the Gradle command. The Probe then reports the camera check as
+unavailable.
+
 The screen renders use Paparazzi, which draws each screen at head-unit size on your PC, with no
 device needed. Look at them after any UI change.
 

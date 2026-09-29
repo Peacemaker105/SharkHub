@@ -38,6 +38,9 @@ keeping the BYD-derived art in the app, the MIT licence, and a release with all 
   car), installs via both installers or adb, updates, building, the car API and Probe (with a warning
   that probe exports contain the VIN), sideloading, the Bluetooth caveat, credits, and the imagery
   and trademark notice. It has pictures from the snapshots, plus `docs/images/installer-windows.png`.
+  It also warns that `gradle.properties` has `sharkhub.nativeCam=true`, so a source build downloads
+  the NDK (about 1.5 GB) unless run with `-Psharkhub.nativeCam=false`. The release APK carries the
+  read-only camera probe libraries, as the car's builds always have.
 - **Installers:** both default to `Peacemaker105/SharkHub`. They now pick the release APK named for
   Shark Hub (has "sharkhub", not "installer"), so the phone installer's own APK on the same release
   is never installed on the car. The Windows exe is rebuilt.
@@ -59,8 +62,14 @@ keeping the BYD-derived art in the app, the MIT licence, and a release with all 
   and 1.0.0 (1).
 - 59 unit and snapshot tests pass: FuelLogTest 8, ScreenSnapshots 43, close-ups 4, installer 4.
 - The Windows exe rebuilt and rendered its window, with *Latest Shark Hub* enabled.
-- **Nothing new has run on the car or a phone.** The release/latest lookup was checked against the
-  GitHub API after publishing (see below).
+- Checked on GitHub after publishing:
+  - `releases/latest` returns v0.2.0 as a full release with all three assets.
+  - The installers' naming rule picks `SharkHub-0.2.0.apk`.
+  - `latest.json` is served from `main`. Its `apkUrl` redirects to a download exactly the built APK's
+    size (59,308,313 bytes).
+  - The README's seven pictures load and its notice renders.
+  - Only `main` is on the remote.
+- **Nothing new has run on the car or a phone.**
 
 **Open / next:**
 - Install 0.2.0 on the car once by adb or Sideload. The car's 0.1.0 updater still points at the
