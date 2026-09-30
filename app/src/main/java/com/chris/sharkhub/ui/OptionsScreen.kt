@@ -53,7 +53,6 @@ import com.chris.sharkhub.ota.OtaUpdater
 import com.chris.sharkhub.ui.dash.DashLayout
 import com.chris.sharkhub.ui.dash.HomeBackdrop
 import com.chris.sharkhub.ui.dash.HomePreset
-import com.chris.sharkhub.ui.overview.SceneLighting
 import com.chris.sharkhub.ui.theme.StyleSpec
 import com.chris.sharkhub.ui.theme.Styles
 import com.chris.sharkhub.ui.theme.ThemeController
@@ -73,8 +72,6 @@ fun OptionsScreen(nav: NavController, themes: ThemeController) {
     var homeLayout by remember { mutableStateOf(HomePreset.byId(prefs.homeLayout)) }
     var homeBackdrop by remember { mutableStateOf(HomeBackdrop.byId(prefs.homeBackdrop)) }
     var homeDock by remember { mutableStateOf(prefs.homeDock) }
-    var sceneLighting by remember { mutableStateOf(prefs.sceneLighting) }
-    var sceneMotion by remember { mutableStateOf(prefs.sceneMotion) }
     val cs = MaterialTheme.colorScheme
 
     Column(Modifier.fillMaxSize()) {
@@ -130,27 +127,9 @@ fun OptionsScreen(nav: NavController, themes: ThemeController) {
                                 prefs.homeDock = homeDock
                             }
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Scene lighting", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                                Text("The truck scene's time of day — Auto follows the clock, and the sun once the unit has a fix",
-                                    style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                            }
-                            SegmentedControl(SceneLighting.labels, SceneLighting.ids.indexOf(sceneLighting).coerceAtLeast(0)) { i ->
-                                sceneLighting = SceneLighting.ids[i]
-                                prefs.sceneLighting = sceneLighting
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Scene motion", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                                Text("The road, wheels and backdrop move with speed; off is a still", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
-                            }
-                            SegmentedControl(listOf("Off", "On"), if (sceneMotion) 1 else 0) { i ->
-                                sceneMotion = i == 1
-                                prefs.sceneMotion = sceneMotion
-                            }
-                        }
+                        // car colour, time of day and motion live on the scene itself
+                        Text("Scene settings — car colour, time of day and scene motion — are on the Overview and the stage page: tap the cog.",
+                            style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
                     }
                 }
                 Panel(Modifier.fillMaxWidth()) {

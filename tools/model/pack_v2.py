@@ -4,11 +4,14 @@ Usage: python pack_v2.py <render_dir> <out_dir> [--tag v2] [--v1 <v1_meta.json>]
                          [--bg-quality 92] [--day-bg png|webp] [--no-previews] [--accent 48c4ff]
 
 What it does (see tools/model/README.md):
-  * ghost body / painted shells / wheel frames: re-encoded PNG (optimised), names kept
+  * ghost body / shells / wheel frames: re-encoded PNG (optimised), names kept. A shell is three
+    layers when the render is tintable: body_solid (everything but the paint panels), paint_base
+    (the panels on the neutral grey the app tints) and paint_spec (their clearcoat, added)
   * drive: greyed like prep_layers.py (the app multiplies it by the theme colour) and masked to the
-    painted shell's silhouette so nothing of the chassis pokes outside the truck
+    shell's silhouette so nothing of the chassis pokes outside the truck
   * bg plates: WebP (lossy, high quality) by default, PNG for the day plate so Paparazzi (ImageIO,
-    no WebP) can still see the scene; every file name is written into the meta
+    no WebP) can still see the scene; the ×2 field-of-view twins (bg_wide, for zooming out) and the
+    blurred plates likewise; every file name is written into the meta
   * inclinometer views: resized to 1400 / 900 / 700 px wide, ground row + pivot recomputed
   * <tag>_meta.json: v1 keys (canvas, phases, unitsPerPx, layers, wheels, anchors, groundH, road)
     plus times / views / paint / files / metresPerUnit, validated against the v1 meta's key set
@@ -20,6 +23,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 WHEELS = ["FL", "FR", "RL", "RR"]
 VIEW_WIDTHS = {"side": 1400, "front": 900, "rear": 700}
+PAINT_LAYERS = {"paintBase": "paint_base", "paintSpec": "paint_spec"}   # meta key → file suffix
 
 
 def log(*a):
@@ -123,11 +127,24 @@ def main():
     put(f"{tag}_body.png", save_png(body, os.path.join(od, f"{tag}_body.png")))
     shell = load_rgba(os.path.join(rd, f"{tag}_body_solid.png"))
     put(f"{tag}_body_solid.png", save_png(shell, os.path.join(od, f"{tag}_body_solid.png")))
-    drive = grey_drive(load_rgba(os.path.join(rd, f"{tag}_drive.png")))
-    drive = mask_to_shell(drive, meta["layers"]["drive"], shell, meta["layers"]["bodySolid"], (W, H))
-    put(f"{tag}_drive.png", save_png(drive, os.path.join(od, f"{tag}_drive.png")))
     meta["layers"]["body"]["file"] = f"{tag}_body.png"
     meta["layers"]["bodySolid"]["file"] = f"{tag}_body_solid.png"
+    # the tintable paint layers (older renders have none: there body_solid is the whole painted shell)
+    silhouette = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    silhouette.alpha_composite(shell, (int(meta["layers"]["bodySolid"]["x"]), int(meta["layers"]["bodySolid"]["y"])))
+    for key, suffix in PAINT_LAYERS.items():
+        name = f"{tag}_{suffix}.png"
+        if key not in meta["layers"] or not os.path.exists(os.path.join(rd, name)):
+            meta["layers"].pop(key, None)
+            continue
+        im = load_rgba(os.path.join(rd, name))
+        put(name, save_png(im, os.path.join(od, name)))
+        meta["layers"][key]["file"] = name
+        if key == "paintBase":
+            silhouette.alpha_composite(im, (int(meta["layers"][key]["x"]), int(meta["layers"][key]["y"])))
+    drive = grey_drive(load_rgba(os.path.join(rd, f"{tag}_drive.png")))
+    drive = mask_to_shell(drive, meta["layers"]["drive"], silhouette, {"x": 0, "y": 0}, (W, H))
+    put(f"{tag}_drive.png", save_png(drive, os.path.join(od, f"{tag}_drive.png")))
     meta["layers"]["drive"]["file"] = f"{tag}_drive.png"
     for n in WHEELS:
         w = meta["wheels"][n]
@@ -148,15 +165,25 @@ def main():
         bg = Image.open(os.path.join(rd, f"{tag}_{tn}_bg.png"))
         put(bg_name, save_bg(bg, os.path.join(od, bg_name), fmt, args.bg_quality))
         t["bg"] = {"file": bg_name, "x": 0, "y": 0, "w": W, "h": H}
-        if tn == base:
-            t["bodySolid"] = dict(meta["layers"]["bodySolid"])
-        else:
-            name = f"{tag}_{tn}_body_solid.png"
-            im = load_rgba(os.path.join(rd, name))
-            put(name, save_png(im, os.path.join(od, name)))
-            crop = t.get("bodySolidCrop") or meta["layers"]["bodySolid"]
-            t["bodySolid"] = {"file": name, "x": crop["x"], "y": crop["y"], "w": crop["w"], "h": crop["h"]}
-            t.pop("bodySolidCrop", None)
+        if t.get("bgWide"):   # the ×2 field-of-view twin, for zooming out (same format as the plate it doubles)
+            wname = f"{tag}_{tn}_bg_wide.{fmt}"
+            wide = Image.open(os.path.join(rd, f"{tag}_{tn}_bg_wide.png"))
+            put(wname, save_bg(wide, os.path.join(od, wname), fmt, args.bg_quality))
+            t["bgWide"] = {"file": wname, "x": 0, "y": 0, "w": W, "h": H, "scale": 2, "centre": [W / 2, H / 2]}
+        shells = [("bodySolid", "body_solid")] + [(k, s) for k, s in PAINT_LAYERS.items() if k in meta["layers"]]
+        for key, suffix in shells:
+            if tn == base:
+                t[key] = dict(meta["layers"][key])
+            else:
+                name = f"{tag}_{tn}_{suffix}.png"
+                im = load_rgba(os.path.join(rd, name))
+                put(name, save_png(im, os.path.join(od, name)))
+                crop = t.get(key + "Crop") or meta["layers"][key]
+                t[key] = {"file": name, "x": crop["x"], "y": crop["y"], "w": crop["w"], "h": crop["h"]}
+                t.pop(key + "Crop", None)
+        for key in PAINT_LAYERS:
+            if key not in meta["layers"]:
+                t.pop(key, None); t.pop(key + "Crop", None)
         if t.get("wheels"):
             for n in WHEELS:
                 wt = t["wheels"][n]
@@ -172,6 +199,14 @@ def main():
                      "wheels": {n: meta["wheels"][n]["files"] for n in WHEELS},
                      "times": {tn: {"bg": t["bg"]["file"], "bodySolid": t["bodySolid"]["file"],
                                     "wheels": ({n: t["wheels"][n]["files"] for n in WHEELS} if t.get("wheels") else None)} for tn, t in times.items()}}
+    for key in PAINT_LAYERS:
+        if key in meta["layers"]:
+            meta["files"][key] = meta["layers"][key]["file"]
+            for tn, t in times.items():
+                meta["files"]["times"][tn][key] = t[key]["file"]
+    for tn, t in times.items():
+        if t.get("bgWide"):
+            meta["files"]["times"][tn]["bgWide"] = t["bgWide"]["file"]
     meta["gradeFormula"] = "per channel, 0-1: out = ((px * tint[c] * brightness) - 0.5) * contrast + 0.5; apply to layers a time does not supply (the base wheels); never to the theme-tinted ghost body or driveline"
 
     # ---- extras from renderExtras(): lit-lamp overlays + motion-blurred road plates (optional)
@@ -187,13 +222,19 @@ def main():
                 meta["lights"][name] = e
             meta["files"]["lights"] = {n: e["file"] for n, e in meta["lights"].items()}
         for tn, te in ex.get("times", {}).items():
-            if tn in times and te.get("bgBlur"):
-                fmt = args.bg   # always the compact format: the blurred plate only ever shows at speed
-                name = f"{tag}_{tn}_bg_blur.{fmt}"
-                bg = Image.open(os.path.join(rd, te["bgBlur"]["file"]))
+            if tn not in times:
+                continue
+            for key, suffix in (("bgBlur", "bg_blur"), ("bgBlurWide", "bg_blur_wide")):
+                if not te.get(key):
+                    continue
+                fmt = args.bg   # always the compact format: the blurred plates only ever show at speed
+                name = f"{tag}_{tn}_{suffix}.{fmt}"
+                bg = Image.open(os.path.join(rd, te[key]["file"]))
                 put(name, save_bg(bg, os.path.join(od, name), fmt, args.bg_quality))
-                times[tn]["bgBlur"] = {"file": name, "x": 0, "y": 0, "w": W, "h": H}
-                meta["files"]["times"][tn]["bgBlur"] = name
+                times[tn][key] = {"file": name, "x": 0, "y": 0, "w": W, "h": H}
+                if key == "bgBlurWide":
+                    times[tn][key].update({"scale": 2, "centre": [W / 2, H / 2]})
+                meta["files"]["times"][tn][key] = name
         if ex.get("blur"):
             meta["blur"] = ex["blur"]
 
@@ -201,19 +242,27 @@ def main():
     if meta.get("views"):
         log("views")
         for vn, v in meta["views"].items():
-            src = os.path.join(rd, f"{tag}_view_{vn}.png")
-            im = load_rgba(src)
-            crop = v["canvasCrop"]
+            # the view and its paint layers share one frame — the union of their crops — so the app
+            # draws all three at the same size and place
+            parts = [("file", "", v["canvasCrop"])] + [(k, "_" + s, v[k + "Crop"]) for k, s in PAINT_LAYERS.items() if v.get(k + "Crop")]
+            crop = {"x": min(c["x"] for _, _, c in parts), "y": min(c["y"] for _, _, c in parts)}
+            crop["w"] = max(c["x"] + c["w"] for _, _, c in parts) - crop["x"]
+            crop["h"] = max(c["y"] + c["h"] for _, _, c in parts) - crop["y"]
             target = VIEW_WIDTHS.get(vn, 1000)
-            s = target / im.width
-            out = im.resize((target, round(im.height * s)), Image.LANCZOS)
-            name = f"{tag}_view_{vn}.png"
-            put(name, save_png(out, os.path.join(od, name)))
+            s = target / crop["w"]
+            size = (target, round(crop["h"] * s))
+            for key, suffix, c in parts:
+                framed = Image.new("RGBA", (int(crop["w"]), int(crop["h"])), (0, 0, 0, 0))
+                framed.alpha_composite(load_rgba(os.path.join(rd, f"{tag}_view_{vn}{suffix}.png")), (int(c["x"] - crop["x"]), int(c["y"] - crop["y"])))
+                name = f"{tag}_view_{vn}{suffix}.png"
+                put(name, save_png(framed.resize(size, Image.LANCZOS), os.path.join(od, name)))
+                v[key] = name
+                v.pop(key + "Crop", None)
             ground = (v["ground"] - crop["y"]) * s
             pivot = [(v["pivot"][0] - crop["x"]) * s, (v["pivot"][1] - crop["y"]) * s]
             hubs = {k: [(p[0] - crop["x"]) * s, (p[1] - crop["y"]) * s] for k, p in v.get("hubs", {}).items()}
-            v.update({"file": name, "w": out.width, "h": out.height, "ground": round(ground, 1), "groundFrac": round(ground / out.height, 4),
-                      "pivot": [round(pivot[0], 1), round(pivot[1], 1)], "pivotFrac": [round(pivot[0] / out.width, 4), round(pivot[1] / out.height, 4)],
+            v.update({"w": size[0], "h": size[1], "ground": round(ground, 1), "groundFrac": round(ground / size[1], 4),
+                      "pivot": [round(pivot[0], 1), round(pivot[1], 1)], "pivotFrac": [round(pivot[0] / size[0], 4), round(pivot[1] / size[1], 4)],
                       "hubs": {k: [round(p[0], 1), round(p[1], 1)] for k, p in hubs.items()}, "pxPerM": round(v.get("pxPerM", 0) * s, 2)})
             v.pop("canvasCrop", None)
         meta["files"]["views"] = {vn: v["file"] for vn, v in meta["views"].items()}
@@ -241,9 +290,12 @@ def main():
         log("v1 key check:", "OK" if not problems else problems)
     # every referenced file must exist and decode
     refs = [meta["files"]["body"], meta["files"]["bodySolid"], meta["files"]["drive"]] + [f for n in WHEELS for f in meta["files"]["wheels"][n]]
+    refs += [meta["files"][k] for k in PAINT_LAYERS if k in meta["files"]]
     for tn, t in meta["files"]["times"].items():
-        refs += [t["bg"], t["bodySolid"]] + ([f for n in WHEELS for f in t["wheels"][n]] if t.get("wheels") else [])
+        refs += [t["bg"], t["bodySolid"]] + [t[k] for k in ("paintBase", "paintSpec", "bgWide", "bgBlur", "bgBlurWide") if t.get(k)]
+        refs += [f for n in WHEELS for f in t["wheels"][n]] if t.get("wheels") else []
     refs += list(meta["files"].get("views", {}).values())
+    refs += [v[k] for v in meta.get("views", {}).values() for k in PAINT_LAYERS if v.get(k)]
     for f in refs:
         p = os.path.join(od, f)
         try:
@@ -276,6 +328,30 @@ def main():
         shutil.rmtree(old)
     log("swapped into", final_od)
     return 0
+
+
+def shell_image(od, meta, t):
+    """The shell on a full canvas the way the app draws it: the unpainted parts, then the paint panels
+    tinted by the preview colour ÷ the neutral grey they were rendered in, then their clearcoat added."""
+    W, H = meta["canvas"]
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    rest = Image.open(os.path.join(od, t["bodySolid"]["file"])).convert("RGBA")
+    out.alpha_composite(rest, (int(t["bodySolid"]["x"]), int(t["bodySolid"]["y"])))
+    paint = meta.get("paint") or {}
+    if t.get("paintBase") and paint.get("tintable"):
+        chosen, neutral = paint.get("hex", "#808080").lstrip("#"), paint.get("neutral", "#bcbcbc").lstrip("#")
+        k = [int(chosen[i:i + 2], 16) / max(1, int(neutral[i:i + 2], 16)) for i in (0, 2, 4)]
+        base = Image.open(os.path.join(od, t["paintBase"]["file"])).convert("RGBA")
+        chans = [ch.point(lambda v, kk=kk: min(255, int(v * kk + 0.5))) for ch, kk in zip(base.split()[:3], k)]
+        out.alpha_composite(Image.merge("RGBA", (*chans, base.getchannel("A"))), (int(t["paintBase"]["x"]), int(t["paintBase"]["y"])))
+    if t.get("paintSpec") and paint.get("tintable"):
+        spec = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        spec.paste(Image.open(os.path.join(od, t["paintSpec"]["file"])).convert("RGBA"), (int(t["paintSpec"]["x"]), int(t["paintSpec"]["y"])))
+        a = spec.getchannel("A")
+        lit = Image.merge("RGB", tuple(ImageChops.multiply(c, a) for c in spec.split()[:3]))   # premultiplied, then added
+        rgb = ImageChops.add(Image.merge("RGB", out.split()[:3]), lit)
+        out = Image.merge("RGBA", (*rgb.split(), out.getchannel("A")))
+    return out
 
 
 def make_preview(od, meta, tn, accent, xray, out_path, scale=0.5):
@@ -338,10 +414,10 @@ def make_preview(od, meta, tn, accent, xray, out_path, scale=0.5):
             if xray > 0.005: paste(tinted(Image.open(os.path.join(od, meta["files"]["drive"])).convert("RGBA"), accent, 0.6), meta["layers"]["drive"])
         elif layer == "shell":
             if xray < 0.995:
-                im = Image.open(os.path.join(od, t["bodySolid"]["file"])).convert("RGBA")
+                im = shell_image(od, meta, t)
                 if xray > 0.005:
                     r, gg, b, al = im.split(); al = al.point(lambda v: int(v * (1 - xray))); im = Image.merge("RGBA", (r, gg, b, al))
-                paste(im, t["bodySolid"])
+                canvas.alpha_composite(im)
         else:
             im, fr = wheel(layer)
             if layer in ("RL", "FL"):

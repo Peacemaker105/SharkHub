@@ -17,6 +17,49 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-01 — Claude Code — Round 3: round two seen on the car; tintable paint pack, wide plates, lamps out of the shells; cog sheet, fullscreen Vehicle page, zoom/pan, Menu tile fix
+
+Chris looked at the round-two debug build on the unit at 05:35 (night). It rendered: the BYD truck
+on Home and the Vehicle page, night plate, lamp overlays, Tyres plates and callouts. His notes and
+what came of them:
+
+- **On the car:** tail/brake glow read as "through the body" (Home drew the shell 30 % ghosted, so
+  the red tail pool on the night plate showed through the tub; the night shell also had lit lamps
+  baked in, doubling the overlays → blown-out headlamps); the accent sweep only covered the body's
+  crop; the Dashboard Vehicle card still showed the old Meshy JPEG; the fronts' plates went amber at
+  39/40 psi beside 43 psi rears (median rule; a normal split); the scene picked night 17 min before
+  sunrise (no location fix → fixed hours). His asks on top: deep-blue paint + a colour picker, a cog
+  for scene settings, pinch-zoom out to half size (default a little further out), two-finger swipe
+  around the car, remembered on exit, no "Car" pill, the Vehicle page fullscreen with on-screen buttons.
+- **Render pipeline (`tools/model/render_v2.html`, `pack_v2.py`, README):** the shell is now three
+  lamps-off layers — `body_solid` (everything but the paint panels, which are depth-only holes),
+  `paint_base` (panels diffuse-only on neutral grey `#bcbcbc`; the app multiplies by chosen ÷ neutral)
+  and `paint_spec` (their clearcoat / reflections, added) — so the picker tints the paint and nothing
+  else and the highlights stay white; `--paint` only colours the previews; meta `paint.{tintable,
+  neutral}`. Every time of day gets a `bg_wide` + `bg_blur_wide` plate (double the half-FOV tangent
+  about the same camera → a pure ×2 about the canvas centre) for zooming out. `lights` gains `drl`
+  (head = low beams only); halo sprites fade with how squarely the lens faces the camera (the roof
+  brake lamp no longer blooms over the cab from ahead). Day exposure 0.9 → 0.74, sun 3.6 → 3.0, env
+  1.1 → 1.0; tail road pool 2.5 → 1.2. Packer: three shell layers per time and per view (views framed
+  to one union crop), wide plates, drive mask from `body_solid ∪ paint_base`, previews tinted the way
+  the app does it. Pack re-rendered: 144 files / 25 MB, meta validated against the v1 key set.
+- **App:** see the round-two entry's "On-car fixes", "Paint, corrected to the split shell", "Vehicle
+  page fullscreen" and "Pinch zoom + pan" bullets (the parallel agent's round: 74 tests green,
+  `assembleDebug` built ~06:17). Plus `ui/Components.kt Tile`: under 150 dp of height it lays the
+  badge and the title/caption side by side (`BoxWithConstraints`) — the Menu's "icons, no titles" bug
+  seen on the unit.
+- **Files:** `tools/model/{render_v2.html, pack_v2.py, README.md}`, `ui/Components.kt`, `HANDOVER.md`,
+  `.gitignore` (`__pycache__/`); the agent's app files are listed in its bullets.
+- **Verified:** round two on the car (captures); round three compiled, 74 tests green with both the
+  public and the private snapshot sets recorded and inspected (zoomed-out wide plate registers, night
+  lamps come from the overlays only, Menu titles back, Vehicle card shows the truck, colour picker
+  changes the paint), APK built — **not installed** (the car was off). The day paint reads as a pale
+  steel blue in the bright day plate (clearcoat reflecting a bright sky); a darker hex deepens it.
+- **Open / next:** install and check on the unit (status-bar hide and fullscreen reach, zoom/pan feel,
+  Menu, Vehicle card, plates, sweep, indicator/headlight codes, "Use location"); Chris's decision on
+  the orbit — needs a live renderer (Filament 1.74.0 `ModelViewer` recommended; a 5-angle turntable
+  or zoom-only otherwise); inclinometer zero; OverDrive install.
+
 ## 2026-10-01 — Claude Code — v2 truck layers rendered from BYD's own Shark 6 model (private pack)
 
 Render-side half of the Overview v2 work (the Kotlin loader was done by a parallel agent). Produces
@@ -50,8 +93,18 @@ the gitignored `app/src/main/assets/car_private/` set the app prefers over `car/
   validated against the v1 key set; the five preview composites inspected (day / dawn / dusk /
   night / day x-ray) — chassis sits inside the BYD body, no Meshy body anywhere. Not run through
   Gradle/Paparazzi or on the car (the Kotlin agent owns that).
+- **Second pass (same day, after review):** night glow confined to the lenses (depth-tested,
+  outward-offset halos; pool lights only in the plate passes), x-ray sharpened (ghost fill 0.14,
+  crisper crease lines, a drive-pass key light, autocontrast + unsharp in the packer, callout
+  anchors re-projected from the aligned chassis regions), day given a stronger key, a baked soft
+  contact shadow (`meta.contactShadow`, new key) and BYD's Showroom HDR cubemap as the paint's
+  reflection environment (`envCube` preset hook, `textures.envCubes` in the rig), lamps dark by
+  day; the packer now builds in `car_private__packing` and swaps the folder in atomically. Rage
+  Mode's tyre atlas/normal map were tried and rejected (different UV layout).
 - **Open / next:** Chris's real paint colour; whether the app should hide v1's dashes/posts on v2
-  plates (`road.dashes`); AI-painted plates are not needed — BYD's own panoramas cover the look.
+  plates (`road.dashes`) and its own contact oval (`contactShadow`); AI-painted plates are not
+  needed — BYD's own panoramas cover the look; `byd_car_rage.glb` driveline as a future `drive`
+  source once its part frames are resolved.
 
 ## 2026-10-01 — Claude Code — 0.2.0 on the car, verified; BYD factory apps pulled (Kanzi/Lottie)
 
@@ -207,10 +260,62 @@ tile; on-car SET tests + inclinometer zero + a drive for gauge scaling.
   not faked when every hour brings its own plate; `preview_*.png` excluded from the APK
   (`androidResources.ignoreAssetsPattern`). The v2 meta's `wheels.<n>.pivotWorld/spinAxis/steerAxis`,
   `views` frac fields, `camera`, `files`, `gradeFormula`, `model`, `paint` are read by nothing.
-- **Files:** `ui/overview/{CarPhotoArt.kt, CarScene.kt, OverviewScreen.kt, RoadBlur.kt (new)}`,
-  `ui/theme/Theme.kt`, `ui/dash/DashboardScreen.kt`, `ui/OptionsScreen.kt`, `data/Prefs.kt`,
-  `car/CarManager.kt` (Telemetry), `car/VehicleControls.kt` (`LS_ON/OFF` public), `MainActivity.kt`,
-  `app/build.gradle.kts`, `.gitignore`, `ScreenSnapshots.kt`.
+- **Paint colour:** `Prefs.paintColour` (ARGB, default `Prefs.DEFAULT_PAINT` = 0xFF1E3A5F, a
+  placeholder for Chris's deep blue) and Options → Home screen *Paint colour* — swatches from the
+  data list in `ui/overview/PaintColour.kt` (Deep Sea Blue, Arctic White, Cosmos Black, Harbour Grey +
+  Outback Red, Gum Green extras) and a *Custom #RRGGBB* field. The scene multiplies the paint into
+  the painted shell only (base and every hour's `bodySolid`; the multiply is folded into the shell
+  slot's colour matrix so it composes with the time-of-day grade), never the ghost, driveline, wheels,
+  lamps or views — and only when the meta says `"paint": {"tintable": true}`; the v1 Meshy shell and
+  the current v2 pack (no flag) are left as painted. `overviewPaint` snapshot (Cosmos Black on v1).
+- **Scene settings on the page** (`ui/overview/SceneSettings.kt`): a frosted cog in the Overview's
+  bottom-right corner and under the stage page's reading pills opens a compact glass sheet in that
+  corner (tap anywhere else to close). Rows, data-driven in `sceneSettingRows`: *Car colour* (swatches
+  + custom hex), *Time of day* (Dynamic / Day / Dusk / Night — Dynamic is the sun-based auto mode;
+  Dawn is a state it produces, not a choice; an old "dawn" pref still works, just shows unselected),
+  *Scene motion* (Off / On). `SceneSettings` mirrors `Prefs.paintColour / sceneLighting / sceneMotion`
+  (`SceneSettings.from(prefs)`, `prefs.save(settings)`); a change re-lights, re-paints or stills the
+  scene at once. Options → Home screen drops its Scene lighting / Scene motion / Paint colour rows for
+  a one-line pointer. `overviewSettings` snapshot (sheet open, Harbour Grey chosen).
+- **On-car fixes (Chris's 05:35 night look at the round-two build):** the accent light sweep now runs
+  the full height of the scene; the home stage's shell is solid (`xray = 0`) and, on the Overview, any
+  x-ray draws the shell's silhouette first as a dark base (surface/background tone, alpha 0.85 × xray)
+  so the road, lamp pools and horizon no longer show through the ghosted truck; tyre plates recolour
+  by a per-axle rule (green unless TPMS flags it, or > 8 % under its axle-mate → amber by 16 %, or
+  under 30 psi → red by 26; axles never compared — a ute's rears run harder); the dashboard Vehicle
+  card is composed from the loaded set (`CarPhotoScene(card = true)`: plate + shell + wheels + lamps,
+  no motion/callouts/sweep, framed on the truck) so paint and time of day follow through, falling back
+  to the v1 JPEG while loading/missing; `Prefs.DEFAULT_PAINT` = 0xFF2B4566 (Deep Sea Blue, sampled
+  from Chris's unit); the tint contract is now `paint: {tintable, neutral: "#RRGGBB"}` — factor =
+  chosen ÷ neutral per channel, clamped at 2 — applied to every hour's shell and, via
+  `VehicleTilt(tint)`, the flat views; lamps assume nothing about the plates (overlays are the only
+  lamps; dusk/night head/tail fallback unchanged); the sheet's Time of day row shows "No location
+  fix…" + a *Use location* button (asks ACCESS_COARSE_LOCATION) while Dynamic has no fix.
+- **Paint, corrected to the split shell:** the tint no longer touches `bodySolid` (chrome, glass,
+  plastics, unlit lamps — drawn as rendered). Per hour and per flat view the meta may add `paintBase`
+  (paint panels, flat neutral diffuse — the only tinted layer: chosen ÷ `paint.neutral` per channel,
+  clamped at 2) and `paintSpec` (their clearcoat, added with `BlendMode.Plus`, untinted); drawn
+  bodySolid → paintBase → paintSpec, all under the shell opacity and the hour's grade. No `paintBase`
+  (v1, old packs) = one untinted shell as before. `TiltArt` carries the views' pair; `VehicleTilt(tint)`
+  draws them. The dark x-ray base takes its silhouette from both shell parts. `drl` is drawn by day.
+- **Vehicle page fullscreen:** the status bar hides while the Overview shows (transient on swipe,
+  restored on leaving — `WindowInsetsControllerCompat` in a `DisposableEffect`); no header bar; back
+  (top-left, with the last command's ✓/✗ beside it), Rage Mode (top-right) and the cog float over the
+  scene as `FrostedButton`s; the "● Car" pill is gone. Home keeps its header.
+- **Pinch zoom + pan** on both scenes (`SceneCamera`, `Prefs.sceneZoom/scenePanX/scenePanY`, saved
+  400 ms after the fingers settle; zoom 0.5–1.2 of the cover fit, default 0.85): two fingers only
+  (`SceneGestures.kt`; one finger stays with the taps), pinch about the pinch centre, two-finger drag
+  pans, pan clamped so the plate always covers the panel. Below 0.75 the meta's `bgWide` / `blurWide`
+  (`layers.*` or `times.<t>.*`, drawn at 2× about `centre`, default the plate's centre) take over with
+  a 150 ms crossfade; without them the zoom can't go below 1 (so the 0.85 default only bites once the
+  wide plates land). Truck layers, callouts, plates and HUD scale with the zoom; text keeps its size.
+  The same two-finger drag is where an orbit would hang off if the set ever goes live-rendered
+  (nothing built for it). `overviewZoomed` snapshot.
+- **Files:** `ui/overview/{CarPhotoArt.kt, CarScene.kt, OverviewScreen.kt, RoadBlur.kt (new),
+  PaintColour.kt (new), SceneSettings.kt (new), TimeOfDay.kt, InclineView.kt}`, `ui/inclino/InclinoGraphics.kt`,
+  `ui/dash/DashWidgets.kt`, `ui/theme/Theme.kt`, `ui/dash/DashboardScreen.kt`, `ui/OptionsScreen.kt`,
+  `data/Prefs.kt`, `car/CarManager.kt` (Telemetry), `car/VehicleControls.kt` (`LS_ON/OFF` public),
+  `MainActivity.kt`, `app/build.gradle.kts`, `.gitignore`, `ScreenSnapshots.kt`.
 - **Verified:** 70 tests green (54 snapshots) recorded with both sets, every new PNG inspected (v1 in
   the tracked folder, v2 in `snapshots/private/`), `:app:assembleDebug` built. **Not on the car.**
 - **Needs probe mapping / on-car confirmation:** turn-light side codes (0 = left, 1 = right?) and

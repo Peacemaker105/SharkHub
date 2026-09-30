@@ -48,13 +48,22 @@ head, `lightDay` = DRL, `LightPosition` = tail, `Lamps_N20/N26` = brake, `lightF
 
 ## What comes out (`<root>/render/`, then `pack_v2.py` → the asset folder)
 Same camera as v1 (az 235, el 9, fov 32, dist 2.9 × bounding radius, 2400×1750): `v2_body` (ghost
-shell + crease lines at `edge`°), `v2_body_solid`, `v2_drive`, `v2_wheel_XX_00..11`, per time of day
-`v2_<t>_bg` (+ `v2_<t>_body_solid`, and `v2_<t>_wheel_*` for the times in `wheelTimes`),
-`v2_view_side/front/rear`, the extras `v2_light_<group>` and `v2_<t>_bg_blur`, and `v2_meta.json`.
-The packer greys the driveline and **masks it to the painted shell's silhouette** (the Meshy chassis
-pokes out of the bumper otherwise), converts plates to WebP (day plate PNG so Paparazzi can see it),
-resizes the views (1400 / 900 / 700 px) and rewrites their ground row + pivot, validates the v1 key
-set, and writes `preview_<t>.png` composites (+ `preview_day_xray.png`).
+shell + crease lines at `edge`°); the shell as **three lamps-off layers** — `v2_body_solid` (chrome,
+glass, plastics, lenses; the paint panels are depth-only holes), `v2_paint_base` (the panels
+diffuse-only on the neutral grey `meta.paint.neutral`, which the app multiplies per channel by
+chosen ÷ neutral) and `v2_paint_spec` (their clearcoat / reflections, added untinted); `v2_drive`;
+`v2_wheel_XX_00..11`; per time of day `v2_<t>_bg` and its ×2 field-of-view twin `v2_<t>_bg_wide`
+(same pixel size, `scale: 2` about the canvas centre — what the app shows zoomed out), the three
+`v2_<t>_*` shell layers, and `v2_<t>_wheel_*` for the times in `wheelTimes`; `v2_view_side/front/rear`
+(+ `_paint_base` / `_paint_spec`, all framed to one crop); the extras `v2_light_<group>` (head, drl,
+tail, brake, turn_L/R, fog, reverse) and `v2_<t>_bg_blur` / `_bg_blur_wide`; and `v2_meta.json`.
+No lamp is ever lit in a shell layer — the app adds the overlays from the car's own states — and
+`--paint` only colours the previews (`meta.paint.hex`).
+The packer greys the driveline and **masks it to the shell's silhouette** (`body_solid` ∪
+`paint_base`; the Meshy chassis pokes out of the bumper otherwise), converts plates to WebP (day
+plates PNG so Paparazzi can see them), resizes the views (1400 / 900 / 700 px) and rewrites their
+ground row + pivot, validates the v1 key set, and writes `preview_<t>.png` composites with the paint
+tinted the way the app does it (+ `preview_day_xray.png`).
 
 ## Things learned the hard way
 - **Sky.js as an environment map:** strip the sun disc from the copy you feed `PMREMGenerator`
@@ -81,3 +90,23 @@ set, and writes `preview_<t>.png` composites (+ `preview_day_xray.png`).
 - The BYD backdrops are horizon strips (horizon at 25 % from the bottom, water reflection below):
   wrapped on a cylinder with the horizon at the camera's height, the reflection band *is* the lake
   beyond the far verge — no lake plane needed.
+- Reflections: a preset can name an HDR cubemap from `textures.envCubes` (`envCube: "showroom"`,
+  Radiance `.hdr` faces via `HDRCubeTextureLoader` → PMREM). The head unit's own showroom set gives
+  the paint its studio highlights by day; the other times keep the procedural dome (warm tints).
+- Glow sprites must be depth-tested and pushed ~12 cm out from the lens, or the halo of a far tail
+  lamp shows through the cab; they are also faded by how squarely the lens faces the camera
+  (`facing()`), so the roof brake lamp doesn't bloom over the cab from ahead. The lamp pool lights
+  (head spots, tail point light) are only on for the plate passes, so nothing red ever lands on the
+  tub or rear window in the shell layers — and the tail pool is kept faint, because the app draws
+  the shell translucent in x-ray and whatever is on the road behind shows through it.
+- Tinting a painted render by a colour ratio darkens its highlights (a navy multiply turns white
+  clearcoat glints navy) and tints the chrome with it — hence the diffuse / specular split of the
+  paint panels into their own layers, with the grey at linear ≈ 0.5 so sunlit panels don't clip.
+- The Rage Mode tyre atlas (2048² + 3072² normal) has a different layout from `PA_tire1` and does
+  not fit the Shark's `wheel_01_*` UVs (spokes end up on the sidewall) — keep BYD's PA atlas.
+- Driveline callout anchors (`anchors.battery/engine/frontMotor/rearMotor`) are centroids of
+  regions of the aligned chassis mesh (`chassisAnchors()`), projected like every other anchor;
+  the packer marks hubs and anchors on `preview_day_xray.png` so they can be eyeballed.
+- The plates carry a baked soft contact shadow (`meta.contactShadow = true`): the app can skip its
+  own oval for v2 sets. `pack_v2.py` builds into `<out>__packing` and swaps the folder in at the
+  end, so a running Paparazzi/app never sees a half-written pack.

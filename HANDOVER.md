@@ -38,12 +38,48 @@ the scene without a truck until the art is ready, fade it in; wireframe only on 
 Electric lenses already do. Two agents built this: Kotlin side committed (f233d80, then the Denza
 rework), render side into the gitignored `car_private/` pack (see CHANGELOG for its result). Paint
 colour for the private render is still unconfirmed by Chris (BYD's base is a pale steel blue).
-**Re-render the private pack** (about a minute; needs `node serve.js` + the browser pane, see
+**Re-render the private pack** (~2 min render + ~2 min pack; needs `node serve.js` + the browser pane, see
 `tools/model/README.md`): `python tools\model\render_v2.py --root C:\dev\byd_factory --rig
-render_v2/byd_shark6.rig.json --paint <srgb-hex> --out app\src\main\assets\car_private`. The pack is
-126 files / 22 MB incl. 5.8 MB of `preview_*.png` (excluded from the APK). Meta extras: `times`
-(day PNG, dawn/dusk/night WebP plates, lit `bodySolid`, night wheels, `bgBlur`, `grade`), `views`,
-`lights` (head/tail/brake/turn_L/turn_R/fog/reverse), `road.dashes=false` (double yellow line baked in).
+render_v2/byd_shark6.rig.json --paint <srgb-hex> --out app\src\main\assets\car_private --no-open`,
+then `preview_start {url: http://127.0.0.1:8766}` and navigate the pane to the printed URL. The pack
+is now 144 files / 25 MB incl. ~6 MB of `preview_*.png` (excluded from the APK). Since the 2026-10-01
+morning re-render: the shell is **three lamps-off layers** (`bodySolid` without the paint panels,
+`paintBase` on neutral grey `paint.neutral` that the app tints by chosen ÷ neutral, `paintSpec`
+clearcoat added) so the in-app colour picker works; `--paint` only colours the previews; every time
+has a `bgWide`/`bgBlurWide` plate (×2 field of view about the canvas centre) for zooming out; `lights`
+gained `drl` (head = low beams only); halos fade with lens facing; day exposure 0.74 / sun 3.0; tail
+road pool 1.2. Meta extras otherwise as before: `times` (day PNG, dawn/dusk/night WebP plates, night
+wheels, `bgBlur`, `grade`), `views` (+ `paintBase`/`paintSpec` per view), `road.dashes=false`.
+
+## Round 3 (2026-10-01 ~05:30–06:30) — on-car look at round 2, then fixes: BUILT, NOT ON THE CAR
+The round-two debug build ran on the unit (night scene, lamp overlays, Tyres plates all rendered;
+captures in the session). Chris's notes → this round (Agent B + render pass, 74 tests green,
+`assembleDebug` built ~06:17, **not installed** — the car was off by then):
+- Cog sheet on the Overview / stage page (`ui/overview/SceneSettings.kt`): car colour swatches +
+  custom hex (`Prefs.paintColour`, default Deep Sea Blue `#2b4566` sampled from his head unit),
+  Time of day Dynamic / Day / Dusk / Night (+ "Use location" when Dynamic has no fix), Scene motion.
+  The Options rows moved here.
+- Lamps no longer show through the body: Home stage draws a solid shell (`xray = 0`); the Overview
+  lays a dark base (bodySolid ∪ paintBase silhouette) under the x-ray innards; the pack no longer
+  bakes lit lamps into any shell (they were doubling the overlays → blown-out headlights).
+- Sweep full height; tyre plates per axle (green unless TPMS flags, > 8 % under its axle-mate, or
+  under 30 psi); Dashboard Vehicle card composed from the truck layers (`CarPhotoScene(card = true)`).
+- Vehicle page fullscreen: status bar hidden (`WindowInsetsControllerCompat`), no header, frosted
+  back / Rage Mode / cog buttons, "● Car" pill gone. **Check on the unit** that the scene reaches the
+  top edge and the bar comes back on Home.
+- Pinch zoom 0.5–1.2 (default 0.85) + two-finger pan on both scenes, saved in Prefs
+  (`SceneGestures.kt`, `SceneCamera`); wide plates fade in below 0.75.
+- Menu `Tile` (`ui/Components.kt`) goes horizontal under 150 dp of height — the on-car "icons, no
+  titles" bug. Verify on the unit.
+- **Open decision (asked, unanswered):** Chris wants a two-finger "swipe around the car" (side-on /
+  rear quarter). Pre-rendered layers can't orbit. Recommended a live Filament renderer
+  (`com.google.android.filament:filament-android/gltfio-android/filament-utils-android` 1.74.0;
+  `ModelViewer` gives orbit / pinch / pan, material params for paint and lamp emissives at runtime;
+  the pre-rendered scene stays as the fallback and the Paparazzi path); alternatives: a 5-angle
+  turntable of composites, or zoom/pan only. Don't start it without his answer.
+- Next on-car: install `app-debug.apk` (98 MB, versionCode 2 — bump before a release), check the
+  items above, flick indicators/headlights to confirm `getTurnLightState` / headlight codes, the
+  inclinometer zero (read 15° parked), then OverDrive.
 
 ## On-car session 2026-10-01 — 0.2.0 verified, BYD factory tech pulled
 - **0.2.0 runs on the car** and reads live telemetry: outside 14°, range ~470 km, odometer 21,883 km,
@@ -58,8 +94,9 @@ render_v2/byd_shark6.rig.json --paint <srgb-hex> --out app\src\main\assets\car_p
 - **BUG — Menu (old tile grid, `HomeScreen`/`ui/Components.kt Tile`):** on the unit every tile shows
   its icon + value but the **title/caption is clipped**. Cause: `Tile` uses `Arrangement.SpaceBetween`
   with a fixed 20dp pad; at the head unit's larger font scale the icon row overflows and the bottom
-  text column is pushed past the tile edge. Paparazzi (fontScale 1.0) didn't catch it. Fix: give the
-  title priority / reduce pad / cap icon+value height. The main Dashboard (`ui/dash/`) is fine.
+  text column is pushed past the tile edge. Paparazzi (fontScale 1.0) didn't catch it. **Fixed
+  2026-10-01 morning** (compact horizontal layout under 150 dp, via `BoxWithConstraints`) — built,
+  snapshot shows titles + captions, not yet seen on the unit. The main Dashboard (`ui/dash/`) is fine.
 - **BYD factory tech (pulled to `C:\dev\byd_factory\`, NOT in the repo — BYD's proprietary assets,
   private use only, never commit/redistribute):**
   - **3D car = `com.byd.mycar` (BydMyCar.apk, 350 MB), built on Kanzi** (Rightware). One model per

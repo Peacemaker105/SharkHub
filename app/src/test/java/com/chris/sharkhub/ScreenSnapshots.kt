@@ -50,8 +50,14 @@ import com.chris.sharkhub.ui.gauges.GaugeStyle
 import com.chris.sharkhub.ui.gauges.GaugesContent
 import com.chris.sharkhub.ui.gauges.Metric
 import com.chris.sharkhub.ui.overview.CarArt
+import androidx.compose.ui.graphics.Color
 import com.chris.sharkhub.ui.overview.CarArtState
 import com.chris.sharkhub.ui.overview.Lens
+import androidx.compose.ui.geometry.Offset
+import com.chris.sharkhub.ui.overview.PaintColours
+import com.chris.sharkhub.ui.overview.SceneCamera
+import com.chris.sharkhub.ui.overview.SceneSettings
+import com.chris.sharkhub.ui.overview.art
 import com.chris.sharkhub.ui.overview.OverviewContent
 import com.chris.sharkhub.ui.overview.TimeOfDay
 import com.chris.sharkhub.ui.theme.AmbientBackground
@@ -123,6 +129,9 @@ class ScreenSnapshots {
         val art = if (System.getProperty("sharkhub.snapshotPrivate") == "true") CarArt.load(ctx) else CarArt.loadSet(ctx, "car", "v1")
         return CarArtState.of(art?.warm(ctx, time))
     }
+
+    /** The default paint for a set whose shell takes one — what the screens do; the v1 shell stays as painted. */
+    private fun tintOf(a: CarArtState): Color? = a.art?.takeIf { it.paintTintable }?.let { Color(PaintColours.DEFAULT) }
     private val sampleVehicle: Map<String, Int> = mapOf("driveMode" to 1, "roadSurface" to 1, "energyMode" to 3, "hud" to 1, "drl" to 1,
         "socSave" to 2, "socTarget" to 60)
     private val sportVehicle: Map<String, Int> = sampleVehicle + ("driveMode" to 3)
@@ -147,13 +156,14 @@ class ScreenSnapshots {
     ): Unit {
         // Pictures load asynchronously on the device; a single-frame snapshot needs them up front.
         val ctx = paparazzi.context
+        val art = remember { loadArt(time) }
         DashboardContent(
             rememberNavController(), car, tele,
             ClimateState(driverTemp = 22f, passengerTemp = 21f, driverSeat = com.chris.sharkhub.car.SeatClimate(vent = 1)),
             sampleVehicle, connected = true, layout = DashLayout.default(preset), lastResult = null, onLayout = {}, onReset = {},
-            initialPage = page, art = remember { loadArt(time) }, sceneCard = remember { loadSceneCard(ctx) },
+            initialPage = page, art = art, sceneCard = remember { loadSceneCard(ctx) },
             backdrop = backdrop, backdropImage = remember(backdrop) { loadBackdrop(ctx, backdrop) }, dock = dock,
-            fuelLog = remember { sampleFuelLog() }, timeOfDay = time,
+            fuelLog = remember { sampleFuelLog() }, timeOfDay = time, paint = tintOf(art),
         )
     }
 
@@ -170,8 +180,9 @@ class ScreenSnapshots {
         time: TimeOfDay = TimeOfDay.DAY, art: CarArtState? = null,
     ): Unit {
         // The screen loads the rendered truck asynchronously; a single-frame snapshot needs it up front.
+        val a = art ?: remember { loadArt(time) }
         OverviewContent(rememberNavController(), car, tele, vehicle, connected = true, att = att, heading = 309f,
-            lastResult = null, initialLens = lens, art = art ?: remember { loadArt(time) }, timeOfDay = time)
+            lastResult = null, initialLens = lens, art = a, timeOfDay = time, paint = tintOf(a))
     }
 
     // ---- dashboard (boot screen) ----
@@ -198,14 +209,49 @@ class ScreenSnapshots {
     @Test fun overviewGlass() { shot(style = Styles.GLASS) { overviewContent(Lens.TYRES, drivingTelemetry) } }
     @Test fun overviewShell() {
         shot {
+            val a = remember { loadArt() }
             OverviewContent(rememberNavController(), car, sampleTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
-                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { loadArt() }, initialXray = 0.15f)
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = a, initialXray = 0.15f, paint = tintOf(a))
         }
     }
     @Test fun overviewDaylight() { shot(Themes.DAYLIGHT) { overviewContent(Lens.ENERGY) } }
     @Test fun overviewFrost() { shot(style = Styles.FROST) { overviewContent(Lens.ENERGY, drivingTelemetry, Attitude(4f, 0f), sportVehicle) } }
     /** The stage while the art set is still decoding at start-up: scene, no truck, never the wireframe. */
     @Test fun overviewLoading() { shot { overviewContent(Lens.TYRES, art = CarArtState.Loading) } }
+    /** The scene sheet open in the Overview's corner: car colour swatches + hex, Dynamic/Day/Dusk/Night, motion. */
+    @Test fun overviewSettings() {
+        shot {
+            val a = remember { loadArt() }
+            OverviewContent(rememberNavController(), car, sampleTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = a, paint = tintOf(a),
+                settings = SceneSettings(paint = PaintColours.byName("Harbour Grey")!!.argb, lighting = "auto", motion = true), initialSheetOpen = true)
+        }
+    }
+    /** The scene pinched in to 1.2× and panned. */
+    @Test fun overviewZoomed() {
+        shot {
+            val a = remember { loadArt() }
+            OverviewContent(rememberNavController(), car, drivingTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = a, paint = tintOf(a),
+                camera = SceneCamera(1.2f, Offset(-140f, -90f)))
+        }
+    }
+    /** Zoomed out to 0.6: the wide plate takes over on a set that has one; v1 has none, so it clamps to the cover fit. */
+    @Test fun overviewZoomedOut() {
+        shot {
+            val a = remember { loadArt() }
+            OverviewContent(rememberNavController(), car, sampleTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = a, paint = tintOf(a), camera = SceneCamera(0.6f))
+        }
+    }
+    /** A non-default paint multiplied into the shell (the screen only does this for a set whose meta says `paint.tintable`). */
+    @Test fun overviewPaint() {
+        shot {
+            OverviewContent(rememberNavController(), car, sampleTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { loadArt() }, initialXray = 0.1f,
+                paint = Color(PaintColours.byName("Cosmos Black")!!.argb))
+        }
+    }
 
     // ---- vehicle overview: scene lighting (Options → Scene lighting overrides; Day is overviewTyres) ----
     @Test fun overviewDawn() { shot { overviewContent(Lens.TYRES, drivingTelemetry, time = TimeOfDay.DAWN) } }
@@ -213,9 +259,10 @@ class ScreenSnapshots {
     @Test fun overviewNight() { shot { overviewContent(Lens.TYRES, drivingTelemetry, time = TimeOfDay.NIGHT) } }
     @Test fun overviewNightShell() {
         shot {
+            val a = remember { loadArt(TimeOfDay.NIGHT) }
             OverviewContent(rememberNavController(), car, drivingTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
-                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { loadArt(TimeOfDay.NIGHT) }, initialXray = 0.15f,
-                timeOfDay = TimeOfDay.NIGHT)
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = a, initialXray = 0.15f,
+                timeOfDay = TimeOfDay.NIGHT, paint = tintOf(a))
         }
     }
     /** Night with the brake, left indicator, position and fog lamps on — lit only when the set lists lamp overlays (v1 has none). */

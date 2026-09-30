@@ -1,8 +1,15 @@
 package com.chris.sharkhub.ui.overview
 
+import android.app.Activity
+import android.content.ContextWrapper
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -121,11 +128,30 @@ fun OverviewScreen(nav: NavController, car: CarManager) {
         onDispose { inc.stop(); compass.stop() }
     }
     val prefs = remember { Prefs(ctx) }
-    val timeOfDay = rememberTimeOfDay(prefs.sceneLighting)
+    var settings by remember { mutableStateOf(SceneSettings.from(prefs)) }
+    val timeOfDay = rememberTimeOfDay(settings.lighting)
+    val art = rememberCarArt()
+    // only a set that says its shell is a neutral render takes the chosen paint
+    val paint = if (art.art?.paintTintable == true) Color(settings.paint) else null
+    // where the scene was last pinched to, written back once the fingers settle
+    var camera by remember { mutableStateOf(SceneCamera(prefs.sceneZoom, Offset(prefs.scenePanX, prefs.scenePanY))) }
+    LaunchedEffect(camera) { delay(400); prefs.sceneZoom = camera.zoom; prefs.scenePanX = camera.pan.x; prefs.scenePanY = camera.pan.y }
+    // The Vehicle page is fullscreen: the status bar goes while it's showing (a swipe brings it
+    // back for a moment) and comes back when the page is left.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        val window = generateSequence(view.context) { (it as? ContextWrapper)?.baseContext }.firstNotNullOfOrNull { it as? Activity }?.window
+        val bars = window?.let { WindowInsetsControllerCompat(it, view) }
+        bars?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        bars?.hide(WindowInsetsCompat.Type.statusBars())
+        onDispose { bars?.show(WindowInsetsCompat.Type.statusBars()) }
+    }
     OverviewContent(nav, car, tele, vehicle, discovery?.backend != null, att, heading, last,
-        initialXray = prefs.carXray, onXrayChange = { prefs.carXray = it },
+        art = art, initialXray = prefs.carXray, onXrayChange = { prefs.carXray = it },
         rollView = if (prefs.inclinoRollView == "rear") VehicleView.REAR else VehicleView.FRONT, timeOfDay = timeOfDay,
-        sceneMotion = prefs.sceneMotion)
+        sceneMotion = settings.motion, paint = paint,
+        settings = settings, onSettings = { settings = it; prefs.save(it) },
+        camera = camera, onCamera = { camera = it })
 }
 
 /** Stateless body — also what the screenshot tests render. */
@@ -150,6 +176,15 @@ fun OverviewContent(
     timeOfDay: TimeOfDay = TimeOfDay.DAY,
     /** Whether the scene moves with road speed (Options → Scene motion). */
     sceneMotion: Boolean = true,
+    /** The shell's paint for a tintable set (the screen gates it on the meta); null = as rendered. */
+    paint: Color? = null,
+    /** The scene sheet's values and where they go; the screen mirrors them to Prefs. */
+    settings: SceneSettings = SceneSettings(),
+    onSettings: (SceneSettings) -> Unit = {},
+    initialSheetOpen: Boolean = false,
+    /** Where the scene is pinched to; [onCamera] null leaves the scene fixed (the screenshot tests). */
+    camera: SceneCamera = SceneCamera(),
+    onCamera: ((SceneCamera) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -169,30 +204,26 @@ fun OverviewContent(
     val scene = SceneState(tele, att, lens, powerNow?.label, xray, vehicle = vehicle)
     val setXray: (Float) -> Unit = { xray = it; onXrayChange(it) }
 
+    // Fullscreen: no header bar — back, Rage Mode and the cog float over the scene, and the last
+    // command's result shows beside back while there is one.
+    val result = lastResult?.let {
+        if (it.result.isFailure) "✗ ${it.label}: ${it.result.exceptionOrNull()?.message}" to cs.error else "✓ ${it.label}" to cs.primary
+    }
+    val onBack: () -> Unit = { nav.popBackStack() }
+    val onRage: () -> Unit = { NativeApp.launchOrToast(ctx, NativeApp.RAGE_MODE) }
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader("Vehicle", nav, subtitle = when {
-            lastResult != null && lastResult.result.isFailure ->
-                "✗ ${lastResult.label}: ${lastResult.result.exceptionOrNull()?.message}"
-            lastResult != null -> "✓ ${lastResult.label}"
-            connected -> "${driveNow?.label ?: "Drive mode —"} · ${powerNow?.label ?: "—"}"
-            else -> "Preview — no car connected"
-        }) {
-            ActionChip("Rage Mode", Icons.Rounded.Bolt, cs.error) { NativeApp.launchOrToast(ctx, NativeApp.RAGE_MODE) }
-            StatusChip(if (connected) "Car" else "Offline", if (connected) cs.primary else cs.secondary)
-        }
-
         if (isPortrait()) {
-            Column(Modifier.weight(1f).fillMaxWidth().padding(end = 20.dp, bottom = 16.dp).verticalScroll(rememberScrollState()),
+            Column(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp, end = 20.dp, bottom = 16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion,
-                    Modifier.fillMaxWidth().height(440.dp)) { lens = it }
+                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion, paint,
+                    settings, onSettings, initialSheetOpen, camera, onCamera, result, onBack, onRage, Modifier.fillMaxWidth().height(440.dp)) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.fillMaxWidth().padding(start = 20.dp))
             }
         } else {
             // the scene owns everything left of the mode column and meets the screen's left edge
-            Row(Modifier.weight(1f).fillMaxWidth().padding(end = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion,
-                    Modifier.weight(1f).fillMaxHeight()) { lens = it }
+            Row(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp, end = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion, paint,
+                    settings, onSettings, initialSheetOpen, camera, onCamera, result, onBack, onRage, Modifier.weight(1f).fillMaxHeight()) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.width(216.dp).fillMaxHeight())
             }
         }
@@ -212,11 +243,17 @@ fun OverviewContent(
 @Composable
 private fun ScenePanel(
     scene: SceneState, art: CarArtState, tele: Telemetry, att: Attitude, heading: Float?, rollView: VehicleView, lens: Lens,
-    xray: Float, onXray: (Float) -> Unit, timeOfDay: TimeOfDay, sceneMotion: Boolean, modifier: Modifier, onLens: (Lens) -> Unit,
+    xray: Float, onXray: (Float) -> Unit, timeOfDay: TimeOfDay, sceneMotion: Boolean, paint: Color?,
+    settings: SceneSettings, onSettings: (SceneSettings) -> Unit, initialSheetOpen: Boolean,
+    camera: SceneCamera, onCamera: ((SceneCamera) -> Unit)?,
+    /** The last command's outcome, shown beside the back button while there is one. */
+    result: Pair<String, Color>?, onBack: () -> Unit, onRage: () -> Unit,
+    modifier: Modifier, onLens: (Lens) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val r = LocalStyle.current.panelRadius
     val cards = 178.dp + 22.dp
+    var sheet by remember { mutableStateOf(initialSheetOpen) }
     // square off the left edge — the scene runs to the edge of the screen
     Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
         Box(Modifier.fillMaxSize()) {
@@ -224,13 +261,22 @@ private fun ScenePanel(
             // wireframe only ever shows when there is no art at all.
             Crossfade(art, animationSpec = tween(250), label = "stage") { st ->
                 when (st) {
-                    is CarArtState.Ready -> CarPhotoScene(scene, st.art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay, sceneMotion = sceneMotion)
+                    is CarArtState.Ready -> CarPhotoScene(scene, st.art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay,
+                        sceneMotion = sceneMotion, paint = paint, camera = camera, onCamera = onCamera)
                     CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
                     CarArtState.Missing -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
                 }
             }
-            // top-left: speed + stats
-            Column(Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = 14.dp)) {
+            // top-left: back, then the last command's result; top-right: Rage Mode
+            Row(Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FrostedButton(Icons.AutoMirrored.Rounded.ArrowBack, "Back", onBack)
+                if (result != null) Text(result.first, style = MaterialTheme.typography.labelLarge, color = result.second, maxLines = 1)
+            }
+            FrostedButton(Icons.Rounded.Bolt, "Rage Mode", onRage, Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 12.dp),
+                label = "Rage Mode", tint = cs.error)
+            // top-left, under back: speed + stats
+            Column(Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = 56.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     AnimatedValue(tele.speedKph?.let { "${it.toInt()}" } ?: "—", MaterialTheme.typography.displayMedium, cs.onSurface)
                     Text(" km/h", style = MaterialTheme.typography.titleSmall, color = cs.onSurfaceVariant,
@@ -242,8 +288,8 @@ private fun ScenePanel(
                     MiniStat("Odo", tele.odometerKm?.let { "%,d km".format(it.toLong()) } ?: "—")
                 }
             }
-            // top-right: which lens
-            Column(Modifier.align(Alignment.TopEnd).padding(end = 20.dp, top = 16.dp), horizontalAlignment = Alignment.End) {
+            // top-right, under Rage Mode: which lens
+            Column(Modifier.align(Alignment.TopEnd).padding(end = 20.dp, top = 58.dp), horizontalAlignment = Alignment.End) {
                 SectionLabel(lens.label, color = cs.primary)
                 when (lens) {
                     Lens.TYRES -> Text("Pressure at each corner", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
@@ -275,6 +321,9 @@ private fun ScenePanel(
                     }
                 }
             }
+            // scene settings: the cog in the free bottom-right corner, its sheet over that corner
+            SceneSettingsCog({ sheet = true }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 14.dp))
+            if (sheet) SceneSettingsSheet(settings, onSettings, { sheet = false }, Alignment.BottomEnd, Modifier.padding(end = 12.dp, bottom = 12.dp))
         }
     }
 }

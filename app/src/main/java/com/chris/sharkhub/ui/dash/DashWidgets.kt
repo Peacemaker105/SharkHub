@@ -123,6 +123,10 @@ import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import com.chris.sharkhub.ui.overview.CarArtState
+import com.chris.sharkhub.ui.overview.CarPhotoScene
+import com.chris.sharkhub.ui.overview.SceneState
+import com.chris.sharkhub.ui.overview.TimeOfDay
 
 /** Everything a widget needs: the car, the current readings, and where to go. */
 class DashScope(
@@ -143,6 +147,10 @@ class DashScope(
     val driverOnRight: Boolean = true,
     /** Fill-ups for the fuel card's calculated range; null hides those controls. */
     val fuelLog: FuelLog? = null,
+    /** The rendered truck, its light and paint, so the Vehicle card shows the truck as it is now. */
+    val art: CarArtState = CarArtState.Missing,
+    val timeOfDay: TimeOfDay = TimeOfDay.DAY,
+    val paint: Color? = null,
 )
 
 /**
@@ -1044,7 +1052,12 @@ private fun VehicleWidget(s: DashScope, size: WidgetSize, modifier: Modifier) {
     }
     Panel(modifier, onClick = { if (!s.editing) s.nav.navigate(Routes.OVERVIEW) }) {
         Box(Modifier.fillMaxSize()) {
-            s.sceneCard?.let {
+            val ready = (s.art as? CarArtState.Ready)?.art?.takeIf { it.bgLayer != null }
+            if (ready != null) {
+                // the truck as it is now — paint, time of day, lamps — rather than the old plate
+                CarPhotoScene(SceneState(s.tele, xray = 0f, home = true, vehicle = s.vehicle), ready, Modifier.fillMaxSize(),
+                    timeOfDay = s.timeOfDay, sceneMotion = false, paint = s.paint, card = true)
+            } else s.sceneCard?.let {
                 Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = BiasAlignment(0.3f, -0.3f))
             }
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(

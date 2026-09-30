@@ -116,7 +116,15 @@ const paintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.
   normalMap: flake, normalScale: new THREE.Vector2(0.15, 0.15), aoMap: aoPaint, aoMapIntensity: aoPaint ? 1.0 : 0, envMapIntensity: 1.0 });
 window.setPaint = (h) => { if (h) paintMat.color.set('#' + String(h).replace('#', '')); else if (rig.paint && rig.paint.linear) paintMat.color.setRGB(...rig.paint.linear); else paintMat.color.set(0x1f5fa8); return hex(paintMat.color); };
 window.setPaint(params.get('paint') || (rig.paint && rig.paint.hex));
-const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd9dcdf, metalness: 1.0, roughness: 0.28, side: DS });   // satin: mirror chrome turns into white blobs under an empty sky
+// Tintable paint: the app colours the panels itself, so they are rendered twice more — a diffuse-only
+// pass on a flat neutral grey (the app multiplies it by chosen ÷ PAINT_NEUTRAL per channel) and the
+// clearcoat / reflection term on its own (black base, added back untinted). The grey sits at linear
+// ≈ 0.5 so sunlit panels keep their gradient instead of clipping before the app scales them up.
+const PAINT_NEUTRAL = 0xbcbcbc;
+const paintBaseMat = new THREE.MeshStandardMaterial({ color: PAINT_NEUTRAL, metalness: 0, roughness: 1.0, side: DS, aoMap: aoPaint, aoMapIntensity: aoPaint ? 1.0 : 0, envMapIntensity: 1.0 });
+const paintSpecMat = new THREE.MeshPhysicalMaterial({ color: 0x000000, metalness: 0.3, roughness: 0.42, clearcoat: 1.0, clearcoatRoughness: 0.06, side: DS,
+  normalMap: flake, normalScale: new THREE.Vector2(0.15, 0.15), envMapIntensity: 1.0 });
+const chromeMat =new THREE.MeshStandardMaterial({ color: 0xd9dcdf, metalness: 1.0, roughness: 0.28, side: DS });   // satin: mirror chrome turns into white blobs under an empty sky
 const alloyMat = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, metalness: 0.95, roughness: 0.3, side: DS });
 const skidMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, metalness: 0.75, roughness: 0.5, side: DS });     // the bumper skid is silver plastic, not mirror chrome
 const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0c1014, metalness: 0.0, roughness: 0.04, transparent: true, opacity: 0.6, side: DS, depthWrite: false, envMapIntensity: 1.3 });
@@ -213,7 +221,7 @@ function addGlow(mesh, color, size, opacity, kind) {
   // through the cab or over the roof rails
   c.x += (c.x < 0 ? -0.12 : 0.12); if (c.z > 1.45) c.z += 0.06;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity, depthTest: true, depthWrite: false, fog: false }));
-  s.position.copy(c); s.scale.set(size, size, 1); s.renderOrder = 20; s.userData.kind = kind; s.visible = false; glows.add(s); return s;
+  s.position.copy(c); s.scale.set(size, size, 1); s.renderOrder = 20; s.userData.kind = kind; s.userData.baseOpacity = opacity; s.visible = false; glows.add(s); return s;
 }
 function lampFor(o) {
   const st = stateOf(o), nm = nameOf(o);
@@ -285,9 +293,16 @@ function solidMat(o) {
   }
   return o.userData.dbg.mat;
 }
-function setBodyMode(mode) {   // 'solid' | 'ghost' | 'depth' | 'shadow'
+const isPaint = (o) => o.userData.solid === paintMat;
+// 'rest' is the shell without its paint panels (they still hold depth, so nothing behind them leaks
+// through the holes); 'paintBase' / 'paintSpec' are the panels alone with everything else a depth-only
+// occluder — the three tintable layers the app composes in place of one painted shell.
+function setBodyMode(mode) {   // 'solid' | 'ghost' | 'depth' | 'shadow' | 'rest' | 'paintBase' | 'paintSpec'
   for (const o of bodyMeshes) {
-    o.material = mode === 'solid' ? solidMat(o) : mode === 'ghost' ? ghostMat : mode === 'depth' ? depthOnly : shadowOnly;
+    o.material = mode === 'solid' ? solidMat(o) : mode === 'ghost' ? ghostMat : mode === 'depth' ? depthOnly
+      : mode === 'rest' ? (isPaint(o) ? depthOnly : solidMat(o))
+      : mode === 'paintBase' ? (isPaint(o) ? paintBaseMat : depthOnly)
+      : mode === 'paintSpec' ? (isPaint(o) ? paintSpecMat : depthOnly) : shadowOnly;
     o.visible = !(mode === 'ghost' && o.userData.ghostHide);
   }
   for (const e of edgeLines) e.visible = mode === 'ghost';
@@ -603,7 +618,7 @@ const stars = (() => {
 // `pano` names a strip in the rig's textures.panos (BYD's own day / dusk / night horizons); without
 // one the procedural Sky + ridges are used. Presets in the rig (`times`) override these.
 const TIMES = Object.assign({
-  day:   { pano: 'day', envCube: 'showroom', sun: { az: 250, el: 60, color: 0xf6f8ff, intensity: 3.6 }, sky: { turbidity: 2.4, rayleigh: 2.2, mie: 0.003, mieG: 0.8 }, skyGain: [0.40, 0.48, 0.62], exposure: 0.9, envIntensity: 1.1, groundEnv: 0.9,
+  day:   { pano: 'day', envCube: 'showroom', sun: { az: 250, el: 60, color: 0xf6f8ff, intensity: 3.0 }, sky: { turbidity: 2.4, rayleigh: 2.2, mie: 0.003, mieG: 0.8 }, skyGain: [0.40, 0.48, 0.62], exposure: 0.74, envIntensity: 1.0, groundEnv: 0.85,
            fog: { color: 0xc6d3df, near: 40, far: 420 }, hemi: { sky: 0xd6e4ff, ground: 0x707068, intensity: 0.45 }, ridge: 0x3f5068, ridgeLit: 0x8fa0b4,
            lamps: 'off', stars: false, pools: 0, grade: { tint: [1, 1, 1], contrast: 1, brightness: 1 } },
   dawn:  { pano: 'dusk', panoTint: [1.07, 0.97, 0.93], sun: { az: 150, el: 6, color: 0xffc09a, intensity: 2.6 }, sky: { turbidity: 6, rayleigh: 2.8, mie: 0.012, mieG: 0.86 }, skyGain: [0.62, 0.50, 0.56], exposure: 0.95, envIntensity: 1.0, groundEnv: 0.6,
@@ -631,7 +646,7 @@ async function applyTime(name) {
   const cube = cubeSpec ? await loadEnvCube(t.envCube, cubeSpec) : null;
   envRT = cube ? pmrem.fromCubemap(cube) : pmrem.fromScene(envScene, 0.02); scene.environment = envRT.texture;
   const ei = t.envIntensity == null ? 1 : t.envIntensity;
-  for (const m of [paintMat, chromeMat, alloyMat, skidMat, glassMat, lampCoverMat, tyreMat, caliperMat, plasticAoMat, tubMat, plasticMat, fabricMat]) m.envMapIntensity = ei;
+  for (const m of [paintMat, paintBaseMat, paintSpecMat, chromeMat, alloyMat, skidMat, glassMat, lampCoverMat, tyreMat, caliperMat, plasticAoMat, tubMat, plasticMat, fabricMat]) m.envMapIntensity = ei;
   for (const o of lamps) { const L = o.userData.lamp; if (L.unlit) L.unlit.envMapIntensity = ei; if (L.lit) L.lit.envMapIntensity = ei; }
   const sg = t.skyGain == null ? [1, 1, 1] : (typeof t.skyGain === 'number' ? [t.skyGain, t.skyGain, t.skyGain] : t.skyGain);
   sky.material.uniforms.skyGain.value.set(sg[0], sg[1], sg[2]);
@@ -640,7 +655,7 @@ async function applyTime(name) {
   hemi.color.set(t.hemi.sky); hemi.groundColor.set(t.hemi.ground); hemi.intensity = t.hemi.intensity;
   stars.visible = !!t.stars;
   for (const sp of headSpots) sp.intensity = 9 * (t.pools || 0);   // candela: a warm wash on the tarmac ahead of the bumper, not a spotlight disc
-  tailGlow.intensity = 2.5 * (t.pools || 0);
+  tailGlow.intensity = 1.2 * (t.pools || 0);   // a hint of red on the tarmac behind, not a pool that reads through the tub
   setLamps(t.lamps || 'day');
   frame(az, el, dist);
   // backdrop: the preset's own spec, or a named strip from the rig's textures.panos table
@@ -695,6 +710,12 @@ function matchFog(iterations = 4) {
   return { horizonRow: yh, sky: skyC, plain: plainC, fog: hex(scene.fog.color) };
 }
 window.matchFog = matchFog;
+// The plate's wide twin: double the tangent of the half-angle (fov 32° → 59.7°) so it maps onto the
+// normal plate by a pure ×2 about the canvas centre — what the app shows when the scene is zoomed out.
+function setWideFov(on) {
+  camera.fov = on ? 2 * Math.atan(2 * Math.tan(VIEW.fov * Math.PI / 360)) * 180 / Math.PI : VIEW.fov;
+  camera.updateProjectionMatrix(); placeBillboards();
+}
 function frame(a, e, d) {
   az = a; el = e; dist = d;
   camera.fov = VIEW.fov; camera.updateProjectionMatrix();
@@ -794,12 +815,15 @@ async function renderViews(meta, time = 'day') {
     const dir = dirFrom(v.sunAz == null ? v.az - 30 : v.sunAz, v.sunEl == null ? 42 : v.sunEl);
     sun.position.copy(dir).multiplyScalar(40);
     frameView(v);
-    show('body'); setBodyMode('solid'); setWheelMode('solid'); setSpin(0);
-    const crop = await capture(`${TAG}_view_${name}`);
+    show('body'); setWheelMode('solid'); setSpin(0); setLamps('off');
+    setBodyMode('rest'); const crop = await capture(`${TAG}_view_${name}`);
+    setBodyMode('paintBase'); const baseCrop = await capture(`${TAG}_view_${name}_paint_base`);
+    setBodyMode('paintSpec'); const specCrop = await capture(`${TAG}_view_${name}_paint_spec`);
+    setBodyMode('solid'); setLamps(t.lamps || 'day');
     const side = name === 'side';
     const zNear = v.az === 180 ? -tr : v.az === 0 ? tr : 0;
     meta.views[name] = {
-      canvasCrop: crop, view: { az: v.az, el: v.el, fov: v.fov },
+      canvasCrop: crop, paintBaseCrop: baseCrop, paintSpecCrop: specCrop, view: { az: v.az, el: v.el, fov: v.fov },
       ground: project(side ? midX : (name === 'front' ? fx : rx), g, side ? -tr : -tr)[1],
       pivot: project(side ? midX : (name === 'front' ? fx : rx), g, 0),
       hubs: side ? { front: project(fx, ay, -tr), rear: project(rx, ay, -tr) } : { left: project(name === 'front' ? fx : rx, ay, tr), right: project(name === 'front' ? fx : rx, ay, -tr) },
@@ -823,14 +847,27 @@ window.renderAll = async (opts = {}) => {
   const meta = { tag: TAG, canvas: [W, H], view: { az: VIEW.az, el: VIEW.el, dist: VIEW.dist, fov: camera.fov }, phases, layers: {}, wheels: {}, anchors: {} };
   meta.metresPerUnit = MPU;
   meta.model = { name: rig.name || rig.model.split('/').pop(), up: rig.up, toMetres: rig.toMetres, unitScale: S, bbox: { min: box3.min.toArray(), max: box3.max.toArray() } };
-  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default') };
+  // hex = the preview colour only; the app tints paintBase by its own choice ÷ neutral
+  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default'), tintable: true, neutral: hex(PAINT_NEUTRAL) };
   meta.camera = { position: camera.position.toArray(), target: centre.toArray(), fov: camera.fov, aspect: W / H };
-  meta.files = { body: `${TAG}_body.png`, bodySolid: `${TAG}_body_solid.png`, drive: `${TAG}_drive.png`, bg: null, wheels: {} };
+  meta.files = { body: `${TAG}_body.png`, bodySolid: `${TAG}_body_solid.png`, paintBase: `${TAG}_paint_base.png`, paintSpec: `${TAG}_paint_spec.png`, drive: `${TAG}_drive.png`, bg: null, wheels: {} };
   meta.times = {};
   setSpin(0); setSteer(0);
+  // The shell as three layers with every lamp unlit (lamps only ever come from their overlays, driven
+  // by the car): bodySolid = chrome / glass / plastics / lenses with the paint panels as depth-only
+  // holes, paintBase = the panels diffuse-only on the neutral grey, paintSpec = their clearcoat alone.
+  const shellLayers = async (prefix) => {
+    show('body'); setWheelMode('shadow'); setLamps('off');
+    const out = {};
+    setBodyMode('rest'); out.bodySolid = await capture(`${prefix}_body_solid`);
+    setBodyMode('paintBase'); out.paintBase = await capture(`${prefix}_paint_base`);
+    setBodyMode('paintSpec'); out.paintSpec = await capture(`${prefix}_paint_spec`);
+    setBodyMode('solid'); setLamps(TIMES[currentTime].lamps || 'day');
+    return out;
+  };
   // neutral layers under the base (day) light
   show('body'); setBodyMode('ghost'); setWheelMode('shadow'); meta.layers.body = await capture(`${TAG}_body`);
-  setBodyMode('solid'); meta.layers.bodySolid = await capture(`${TAG}_body_solid`);
+  Object.assign(meta.layers, await shellLayers(TAG));
   show('drive'); meta.layers.drive = await capture(`${TAG}_drive`);
   const doWheels = async (prefix) => {
     const out = {};
@@ -872,9 +909,12 @@ window.renderAll = async (opts = {}) => {
     show('bg'); setBodyMode('shadow'); setWheelMode('shadow');
     const bgCrop = await capture(`${TAG}_${tn}_bg`, true);
     if (!meta.layers.bg) { meta.layers.bg = bgCrop; }
-    const entry = { bg: `${TAG}_${tn}_bg.png`, bodySolid: tn === base ? `${TAG}_body_solid.png` : `${TAG}_${tn}_body_solid.png`, wheels: null, grade: t.grade,
-      sun: { az: t.sun.az, el: t.sun.el, color: hex(t.sun.color) }, fog: hex(t.fog.color), lamps: t.lamps, exposure: t.exposure };
-    if (tn !== base) { show('body'); setBodyMode('solid'); setWheelMode('shadow'); const c = await capture(`${TAG}_${tn}_body_solid`); entry.bodySolidCrop = c; }
+    setWideFov(true); await capture(`${TAG}_${tn}_bg_wide`, true); setWideFov(false);
+    const named = (n) => tn === base ? `${TAG}_${n}.png` : `${TAG}_${tn}_${n}.png`;
+    const entry = { bg: `${TAG}_${tn}_bg.png`, bgWide: { file: `${TAG}_${tn}_bg_wide.png`, scale: 2, centre: [W / 2, H / 2] },
+      bodySolid: named('body_solid'), paintBase: named('paint_base'), paintSpec: named('paint_spec'), wheels: null, grade: t.grade,
+      sun: { az: t.sun.az, el: t.sun.el, color: hex(t.sun.color) }, fog: hex(t.fog.color), lamps: 'off', plateLamps: t.lamps, exposure: t.exposure };
+    if (tn !== base) { const c = await shellLayers(`${TAG}_${tn}`); entry.bodySolidCrop = c.bodySolid; entry.paintBaseCrop = c.paintBase; entry.paintSpecCrop = c.paintSpec; }
     if (tn !== base && wheelTimes.includes(tn)) {
       const fr = await doWheels(`${TAG}_${tn}`);
       entry.wheels = {}; for (const n of wheelNames) entry.wheels[n] = { frames: fr[n], files: fr[n].map((_, p) => `${TAG}_${tn}_wheel_${n}_${String(p).padStart(2, '0')}.png`) };
@@ -899,7 +939,8 @@ window.renderAll = async (opts = {}) => {
 // body and wheels as depth-only occluders (clear covers hidden so they don't occlude their own
 // projectors) — the app composites them additively from real car states.
 const LIGHT_GROUPS = {
-  head:    (L) => L.kind === 'head' || L.kind === 'drl',
+  head:    (L) => L.kind === 'head',
+  drl:     (L) => L.kind === 'drl',    // its own layer: the strips are on by day too, when the low beams aren't
   tail:    (L) => L.kind === 'tail',
   brake:   (L) => L.kind === 'brake' || L.kind === 'tail',   // the tagged brake pieces are slivers inside the cluster: braking = the whole rear cluster, brighter
   turn_L:  (L) => L.kind === 'turn' && L.side === 'L',
@@ -912,6 +953,12 @@ const LIGHT_GROUPS = {
 const turnFallback = { turn_L: (L) => L.kind === 'drl' && L.side === 'L', turn_R: (L) => L.kind === 'drl' && L.side === 'R' };
 const amberLit = lampLit(0xffb030, 0xffa020, 6.0);
 const brakeLit = lampLit(0xff2418, 0xff1a0c, 6.0);
+/** 0..1: how squarely a halo's lens faces the camera (lenses face out along the truck's axis: nose −X, tail +X). */
+function facing(s) {
+  const p = s.getWorldPosition(new THREE.Vector3());
+  const d = new THREE.Vector3(p.x < centre.x ? -1 : 1, 0, 0);
+  return Math.max(0, d.dot(camera.position.clone().sub(p).normalize()));
+}
 async function renderLights(meta, time = 'night') {
   await applyTime(time);
   frame(VIEW.az, VIEW.el, VIEW.dist);
@@ -931,7 +978,11 @@ async function renderLights(meta, time = 'night') {
       o.material = name.startsWith('turn') && synthetic ? amberLit : name === 'brake' ? brakeLit : L.lit;
       if (L.sprites) L.sprites.forEach((s) => { s.visible = true; if (name.startsWith('turn') && synthetic) s.material.color.set(0xffb040); });
     }
+    // a halo reads from the side its lens faces: scale it by the angle to the camera, so a tail lamp
+    // seen from the front quarter (or the roof brake lamp from ahead) doesn't bloom through the cab
+    for (const s of allSprites) if (s.visible) s.material.opacity = s.userData.baseOpacity * (0.08 + 0.92 * facing(s));
     const crop = await capture(`${TAG}_light_${name}`);
+    for (const s of allSprites) s.material.opacity = s.userData.baseOpacity;
     for (const o of members) { const L = o.userData.lamp; if (L.sprites && name.startsWith('turn') && synthetic) L.sprites.forEach((s) => s.material.color.set(L.glow[0])); }
     if (crop) meta.lights[name] = Object.assign({ file: `${TAG}_light_${name}.png`, lamps: members.map((o) => nameOf(o)), synthetic }, crop);
     setBodyMode('solid'); setWheelMode('solid');
@@ -971,18 +1022,23 @@ async function renderBlurPlates(meta, times, { minPx = 6, maxPx = 24 } = {}) {
   for (const tn of times) {
     await applyTime(tn);
     show('bg'); setBodyMode('shadow'); setWheelMode('shadow');
-    renderer.render(scene, camera);
-    wctx.clearRect(0, 0, W, H); wctx.drawImage(renderer.domElement, 0, 0);
-    const tex = new THREE.CanvasTexture(work); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
-    const vpPx = project(2000, g, 0), yh = horizonRow();   // the road recedes toward +X from this camera (the nose end is behind the camera's shoulder)
-    const u = blurQuad.mat.uniforms;
-    u.tex.value = tex; u.vp.value.set(vpPx[0] / W, 1 - vpPx[1] / H); u.horizon.value = 1 - yh / H; u.minLen.value = minPx / W; u.maxLen.value = maxPx / W; u.aspect.value = W / H;
-    renderer.render(blurQuad.scene, blurQuad.camera);
-    const crop = await capture(`${TAG}_${tn}_bg_blur`, true, false);
-    tex.dispose();
     meta.times[tn] = meta.times[tn] || {};
-    meta.times[tn].bgBlur = Object.assign({ file: `${TAG}_${tn}_bg_blur.png` }, crop);
-    meta.blur.vanishingPoint = vpPx; meta.blur.horizonRow = yh;
+    for (const wide of [false, true]) {   // the normal plate and its wide twin (see setWideFov)
+      setWideFov(wide);
+      renderer.render(scene, camera);
+      wctx.clearRect(0, 0, W, H); wctx.drawImage(renderer.domElement, 0, 0);
+      const tex = new THREE.CanvasTexture(work); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+      const vpPx = project(2000, g, 0), yh = horizonRow();   // the road recedes toward +X from this camera (the nose end is behind the camera's shoulder)
+      const u = blurQuad.mat.uniforms;
+      u.tex.value = tex; u.vp.value.set(vpPx[0] / W, 1 - vpPx[1] / H); u.horizon.value = 1 - yh / H; u.minLen.value = minPx / W; u.maxLen.value = maxPx / W; u.aspect.value = W / H;
+      renderer.render(blurQuad.scene, blurQuad.camera);
+      const name = `${TAG}_${tn}_bg_blur${wide ? '_wide' : ''}`;
+      const crop = await capture(name, true, false);
+      tex.dispose();
+      meta.times[tn][wide ? 'bgBlurWide' : 'bgBlur'] = Object.assign({ file: name + '.png' }, crop, wide ? { scale: 2, centre: [W / 2, H / 2] } : {});
+      if (!wide) { meta.blur.vanishingPoint = vpPx; meta.blur.horizonRow = yh; }
+    }
+    setWideFov(false);
   }
 }
 window.renderExtras = async (opts = {}) => {

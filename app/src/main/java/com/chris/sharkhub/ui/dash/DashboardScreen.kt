@@ -111,8 +111,15 @@ import com.chris.sharkhub.ui.overview.CarArtState
 import com.chris.sharkhub.ui.overview.CarPhotoScene
 import com.chris.sharkhub.ui.overview.CarScene
 import com.chris.sharkhub.ui.overview.EmptyStage
+import com.chris.sharkhub.ui.overview.SceneCamera
+import com.chris.sharkhub.ui.overview.SceneSettings
+import kotlinx.coroutines.delay
+import com.chris.sharkhub.ui.overview.SceneSettingsCog
+import com.chris.sharkhub.ui.overview.SceneSettingsSheet
 import com.chris.sharkhub.ui.overview.SceneState
+import com.chris.sharkhub.ui.overview.save
 import com.chris.sharkhub.ui.overview.TimeOfDay
+import com.chris.sharkhub.ui.overview.art
 import com.chris.sharkhub.ui.overview.rememberCarArt
 import com.chris.sharkhub.ui.overview.rememberTimeOfDay
 import com.chris.sharkhub.ui.theme.LocalStyle
@@ -148,7 +155,13 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
     val art = rememberCarArt()
     val sceneCard = rememberHomeBitmap("card") { loadSceneCard(it) }
     val backdropImage = rememberHomeBitmap(backdrop) { loadBackdrop(it, backdrop) }
-    val timeOfDay = rememberTimeOfDay(prefs.sceneLighting)
+    var settings by remember { mutableStateOf(SceneSettings.from(prefs)) }
+    val timeOfDay = rememberTimeOfDay(settings.lighting)
+    // only a set that says its shell is a neutral render takes the chosen paint
+    val paint = if (art.art?.paintTintable == true) Color(settings.paint) else null
+    // the same pinch as the Vehicle page, remembered with it
+    var camera by remember { mutableStateOf(SceneCamera(prefs.sceneZoom, Offset(prefs.scenePanX, prefs.scenePanY))) }
+    LaunchedEffect(camera) { delay(400); prefs.sceneZoom = camera.zoom; prefs.scenePanX = camera.pan.x; prefs.scenePanY = camera.pan.y }
     DashboardContent(
         nav = nav, car = car, tele = tele, climate = climate, vehicle = vehicle,
         connected = discovery?.backend != null, layout = layout, lastResult = last,
@@ -156,7 +169,9 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
         onReset = { layout = DashLayout.default(HomePreset.byId(prefs.homeLayout)); DashLayout.reset(prefs) },
         art = art, sceneCard = sceneCard, backdrop = if (backdrop == HomeBackdrop.WAVES || backdropImage != null) backdrop else HomeBackdrop.NONE,
         backdropImage = backdropImage, dock = prefs.homeDock, driverOnRight = prefs.driverOnRight,
-        fuelLog = fuelLog, timeOfDay = timeOfDay, sceneMotion = prefs.sceneMotion,
+        fuelLog = fuelLog, timeOfDay = timeOfDay, sceneMotion = settings.motion, paint = paint,
+        settings = settings, onSettings = { settings = it; prefs.save(it) },
+        camera = camera, onCamera = { camera = it },
     )
 }
 
@@ -186,6 +201,14 @@ fun DashboardContent(
     timeOfDay: TimeOfDay = TimeOfDay.DAY,
     /** Whether the stage's scene moves with road speed (Options → Scene motion). */
     sceneMotion: Boolean = true,
+    /** The shell's paint for a tintable set (gated on the meta by the screen); null = as rendered. */
+    paint: Color? = null,
+    /** The stage page's scene sheet (same control as the Overview's); the screen mirrors it to Prefs. */
+    settings: SceneSettings = SceneSettings(),
+    onSettings: (SceneSettings) -> Unit = {},
+    /** Where the stage's scene is pinched to; [onCamera] null leaves it fixed. */
+    camera: SceneCamera = SceneCamera(),
+    onCamera: ((SceneCamera) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -201,7 +224,7 @@ fun DashboardContent(
     }
     val scope = DashScope(car, nav, ctx, tele, climate, vehicle, connected, editing, { text, action ->
         confirmText = text; confirm = action
-    }, sceneCard, driverOnRight, fuelLog)
+    }, sceneCard, driverOnRight, fuelLog, art, timeOfDay, paint)
     fun updatePage(index: Int, edit: (DashPage) -> DashPage) =
         onLayout(layout.copy(pages = layout.pages.mapIndexed { i, p -> if (i == index) edit(p) else p }))
     val page = layout.pages.getOrNull(pager.currentPage)
@@ -254,8 +277,8 @@ fun DashboardContent(
                         }
                         val onRemove: (Int) -> Unit = { idx -> updatePage(pageIndex) { pg -> pg.copy(widgets = pg.widgets.filterIndexed { j, _ -> j != idx }) } }
                         when (p.kind) {
-                            PageKind.STAGE -> StagePage(p, scope, art, timeOfDay, sceneMotion, editing, onReorder, onRemove,
-                                Modifier.fillMaxSize().padding(end = if (dock) 4.dp else 20.dp, bottom = 4.dp))
+                            PageKind.STAGE -> StagePage(p, scope, art, timeOfDay, sceneMotion, paint, settings, onSettings, camera, onCamera,
+                                editing, onReorder, onRemove, Modifier.fillMaxSize().padding(end = if (dock) 4.dp else 20.dp, bottom = 4.dp))
                             else -> WidgetGrid(p.widgets, p.kind, scope, editing, onReorder, onRemove,
                                 Modifier.fillMaxSize().padding(start = 20.dp, end = if (dock) 8.dp else 20.dp))
                         }
@@ -419,22 +442,26 @@ private fun PageDots(count: Int, current: Int) {
 /** The truck fills the page; clock top-left, readings top-right, the page's widgets as a row of cards. */
 @Composable
 private fun StagePage(
-    page: DashPage, scope: DashScope, art: CarArtState, timeOfDay: TimeOfDay, sceneMotion: Boolean, editing: Boolean,
+    page: DashPage, scope: DashScope, art: CarArtState, timeOfDay: TimeOfDay, sceneMotion: Boolean, paint: Color?,
+    settings: SceneSettings, onSettings: (SceneSettings) -> Unit, camera: SceneCamera, onCamera: ((SceneCamera) -> Unit)?, editing: Boolean,
     onReorder: (Int, Int) -> Unit, onRemove: (Int) -> Unit, modifier: Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
     val r = LocalStyle.current.panelRadius
     val tele = scope.tele
+    var sheet by remember { mutableStateOf(false) }
     fun mode(id: String) = VehicleControls.selector(id)?.let { sel -> sel.optionFor(scope.vehicle[sel.id])?.label }
     val modeLabel = listOfNotNull(mode("driveMode"), mode("roadSurface")).joinToString(" · ").ifEmpty { null }
-    val state = SceneState(tele, xray = 0.3f, home = true, modeLabel = modeLabel, vehicle = scope.vehicle)
+    // a solid shell on the home stage: the innards stay hidden, so nothing behind the truck shows through it
+    val state = SceneState(tele, xray = 0f, home = true, modeLabel = modeLabel, vehicle = scope.vehicle)
     // squared left edge: the scene runs to the edge of the screen
     Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
         Box(Modifier.fillMaxSize()) {
             // an empty stage while the art decodes (never the wireframe, which would flash), the truck fading in after
             Crossfade(art, animationSpec = tween(250), label = "stage") { st ->
                 when (st) {
-                    is CarArtState.Ready -> CarPhotoScene(state, st.art, Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion)
+                    is CarArtState.Ready -> CarPhotoScene(state, st.art, Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion, paint = paint,
+                        camera = camera, onCamera = onCamera)
                     CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
                     CarArtState.Missing -> CarScene(state, Modifier.fillMaxSize().padding(6.dp))
                 }
@@ -449,6 +476,9 @@ private fun StagePage(
             }
             WidgetGrid(page.widgets, PageKind.STAGE, scope, editing, onReorder, onRemove,
                 Modifier.align(Alignment.BottomStart).fillMaxWidth().height(158.dp).padding(start = 18.dp, end = 16.dp, bottom = 14.dp))
+            // scene settings: the cog under the reading pills (the card row owns the bottom), its sheet over that corner
+            SceneSettingsCog({ sheet = true }, Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 70.dp))
+            if (sheet) SceneSettingsSheet(settings, onSettings, { sheet = false }, Alignment.TopEnd, Modifier.padding(end = 12.dp, top = 64.dp))
         }
     }
 }

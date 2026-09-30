@@ -20,6 +20,7 @@ keystore.properties
 design/model/shark6_full.glb
 tools/model/node_modules/
 tools/model/package-lock.json
+__pycache__/
 
 design/model/stock_full.glb
 

@@ -75,7 +75,11 @@ fun rollCaption(deg: Float): String = when {
  * x it tips about — both in image pixels. The cut-out photos stand on their bottom edge and tip
  * about their middle; a rendered view says where in its meta.
  */
-class TiltArt(val image: ImageBitmap, val groundY: Float = image.height.toFloat(), val pivotX: Float = image.width / 2f)
+class TiltArt(
+    val image: ImageBitmap, val groundY: Float = image.height.toFloat(), val pivotX: Float = image.width / 2f,
+    /** A tintable set's paint panels for this view (same size as [image]): the neutral base that takes the colour, and the clearcoat added over it. */
+    val paintBase: ImageBitmap? = null, val paintSpec: ImageBitmap? = null,
+)
 
 /**
  * The cut-out Shark photos for the tilt drawings — a side view and each end. Decoded once and
@@ -104,7 +108,9 @@ object InclinoArt {
  * used instead.
  */
 @Composable
-fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modifier = Modifier, art: TiltArt? = null) {
+fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modifier = Modifier, art: TiltArt? = null,
+                /** The shell's paint for a tintable set's flat view; the photos take none. */
+                tint: ColorFilter? = null) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     val picture = remember(view, art) { art ?: InclinoArt.get(ctx, view) }
@@ -143,8 +149,12 @@ fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modi
                     val h = img.height * k
                     // placed so the picture's own ground line sits on ours and its pivot on the box centre;
                     // the photos are drawn as they are, so the paint stays the paint
-                    drawImage(img, dstOffset = IntOffset((50f - picture.pivotX * k).roundToInt(), (ground - picture.groundY * k + 1f).roundToInt()),
-                        dstSize = IntSize(w.roundToInt(), h.roundToInt()), filterQuality = FilterQuality.High)
+                    val at = IntOffset((50f - picture.pivotX * k).roundToInt(), (ground - picture.groundY * k + 1f).roundToInt())
+                    val sz = IntSize(w.roundToInt(), h.roundToInt())
+                    drawImage(img, dstOffset = at, dstSize = sz, filterQuality = FilterQuality.High)
+                    // a split shell's paint panels: tinted base, then the clearcoat added
+                    picture.paintBase?.let { drawImage(it, dstOffset = at, dstSize = sz, filterQuality = FilterQuality.High, colorFilter = tint) }
+                    picture.paintSpec?.let { drawImage(it, dstOffset = at, dstSize = sz, filterQuality = FilterQuality.High, blendMode = BlendMode.Plus) }
                 } else {
                     shapes.draw(this, cs)
                 }

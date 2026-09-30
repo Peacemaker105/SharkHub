@@ -14,7 +14,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -102,24 +104,35 @@ class TimeVariant(
     val bg: LayerFile? = null, val body: LayerFile? = null, val bodySolid: LayerFile? = null, val drive: LayerFile? = null,
     /** The plate with only its road band motion-blurred; faked from [bg] when not supplied. */
     val bgBlur: LayerFile? = null,
+    /** The paint panels alone: a flat neutral diffuse render that takes the chosen colour, and their clearcoat term (added). */
+    val paintBase: LayerFile? = null, val paintSpec: LayerFile? = null,
+    /** Twice the field of view about the same camera, for zooming out (crop already spans 2× the plate). */
+    val bgWide: LayerFile? = null, val blurWide: LayerFile? = null,
     /** Per corner, one file per spin frame — all of a corner's frames or none of them. */
     val wheels: Map<String, List<LayerFile>> = emptyMap(),
     val grade: Grade = Grade.IDENTITY,
 ) {
-    val needsFiles: Boolean get() = bg != null || body != null || bodySolid != null || drive != null || bgBlur != null || wheels.isNotEmpty()
+    val needsFiles: Boolean get() = bg != null || body != null || bodySolid != null || drive != null || bgBlur != null ||
+        paintBase != null || paintSpec != null || bgWide != null || blurWide != null || wheels.isNotEmpty()
 }
 
 /** A time of day's decoded layers. A null slot means "the shared layer, under [grade]". */
 class TimeLayers(
     val time: TimeOfDay, val grade: Grade,
     val bg: Layer? = null, val bgBlur: Layer? = null, val body: Layer? = null, val bodySolid: Layer? = null, val drive: Layer? = null,
+    val paintBase: Layer? = null, val paintSpec: Layer? = null,
+    val bgWide: Layer? = null, val blurWide: Layer? = null,
     val wheels: Map<String, WheelArt> = emptyMap(),
 ) {
-    val hasBitmaps: Boolean get() = bg != null || bgBlur != null || body != null || bodySolid != null || drive != null || wheels.isNotEmpty()
+    val hasBitmaps: Boolean get() = bg != null || bgBlur != null || body != null || bodySolid != null || drive != null ||
+        paintBase != null || paintSpec != null || bgWide != null || blurWide != null || wheels.isNotEmpty()
 }
 
-/** A transparent side / front / rear render for the tilt views, with its ground line and pivot (pixels, or fractions when ≤ 1). */
-class ViewSpec(val file: String, val groundY: Float?, val pivotX: Float?)
+/**
+ * A transparent side / front / rear render for the tilt views, with its ground line and pivot
+ * (pixels, or fractions when ≤ 1), and its paint panels' base / clearcoat files when the shell is tintable.
+ */
+class ViewSpec(val file: String, val groundY: Float?, val pivotX: Float?, val paintBase: String? = null, val paintSpec: String? = null)
 
 /** The lamp overlays a set can list under `lights` — composited additively over the body when lit. */
 val LAMP_KEYS = listOf("head", "tail", "brake", "turnL", "turnR", "fog", "reverse", "drl")
@@ -158,6 +171,14 @@ class CarArt(
     val bgBlur: Layer? = null,
     /** Lit-lamp overlays by [LAMP_KEYS] name, from the meta's `lights`. */
     val lights: Map<String, Layer> = emptyMap(),
+    /** The shared paint panels (`layers.paintBase` / `paintSpec`); absent in v1, whose shell is painted as one. */
+    val paintBase: Layer? = null, val paintSpec: Layer? = null,
+    /** The shared wide plates (`layers.bgWide` / `blurWide`), their crops spanning 2× the plate about its centre. */
+    val bgWide: Layer? = null, val blurWide: Layer? = null,
+    /** `paint.tintable` in the meta: the paint panels are a neutral render meant to take the chosen paint. */
+    val paintTintable: Boolean = false,
+    /** `paint.neutral`: the flat albedo the shell was rendered in; the tint is chosen ÷ neutral per channel. */
+    val paintNeutral: Color = Color.White,
 ) {
     fun anchor(name: String): Offset = anchors[name] ?: Offset(canvas.width / 2f, canvas.height / 2f)
 
@@ -217,7 +238,8 @@ class CarArt(
         val ownBg = layer(v.bg)
         // a variant with its own plate needs its own blur too; faked from the plate when it wasn't rendered
         val ownBlur = layer(v.bgBlur) ?: ownBg?.let { RoadBlur.fake(it, (horizonY ?: canvas.height * 0.35f) - it.crop.y, along) }
-        val layers = TimeLayers(time, v.grade, ownBg, ownBlur, layer(v.body), layer(v.bodySolid), layer(v.drive), ownWheels)
+        val layers = TimeLayers(time, v.grade, ownBg, ownBlur, layer(v.body), layer(v.bodySolid), layer(v.drive),
+            layer(v.paintBase), layer(v.paintSpec), layer(v.bgWide), layer(v.blurWide), ownWheels)
         synchronized(timeCache) {
             timeCache[time] = layers
             val heavy = timeCache.entries.filter { it.value.hasBitmaps }.map { it.key }
@@ -235,7 +257,8 @@ class CarArt(
         val art = decodeAsset(ctx, "$dir/${spec.file}")?.let { img ->
             // a value of one or less is a fraction of the image; anything bigger is pixels
             fun px(v: Float?, extent: Int, default: Float) = when { v == null -> default; v <= 1f -> v * extent; else -> v }
-            TiltArt(img, px(spec.groundY, img.height, img.height.toFloat()), px(spec.pivotX, img.width, img.width / 2f))
+            TiltArt(img, px(spec.groundY, img.height, img.height.toFloat()), px(spec.pivotX, img.width, img.width / 2f),
+                paintBase = spec.paintBase?.let { decodeAsset(ctx, "$dir/$it") }, paintSpec = spec.paintSpec?.let { decodeAsset(ctx, "$dir/$it") })
         }
         synchronized(viewCache) { viewCache[view] = art }
         return art
@@ -278,6 +301,21 @@ class CarArt(
             fun optLayer(e: Any?, fallbackCrop: Crop?): Layer? {
                 val file = fileOf(e, null) ?: return null
                 val c = cropOf(e, fallbackCrop) ?: return null
+                return decodeAsset(ctx, "$dir/$file")?.let { Layer(it, c) }
+            }
+            // A wide plate is the same pixel size as the plate but twice the field of view about the
+            // same camera, so it's drawn at 2× about the point ("centre", in plate px) the renderer
+            // says lines up with the plate's centre — the plate's own centre unless told otherwise.
+            fun wideCrop(e: Any?, plate: Crop?): Crop? {
+                val p = plate ?: return null
+                val c = (e as? JSONObject)?.let { it.optJSONArray("centre") ?: it.optJSONArray("center") }
+                val cx = c?.takeIf { it.length() >= 2 }?.getDouble(0)?.toFloat() ?: (p.x + p.w / 2f)
+                val cy = c?.takeIf { it.length() >= 2 }?.getDouble(1)?.toFloat() ?: (p.y + p.h / 2f)
+                return Crop(cx - p.w, cy - p.h, p.w * 2f, p.h * 2f)
+            }
+            fun optWide(e: Any?, plate: Crop?): Layer? {
+                val file = fileOf(e, null) ?: return null
+                val c = wideCrop(e, plate) ?: return null
                 return decodeAsset(ctx, "$dir/$file")?.let { Layer(it, c) }
             }
 
@@ -335,10 +373,17 @@ class CarArt(
                         n to list
                     }.toMap()
                 } ?: emptyMap()
+                fun wideSlot(vararg keys: String): LayerFile? {
+                    val e = keys.firstNotNullOfOrNull { o.opt(it) } ?: return null
+                    val file = fileOf(e, null) ?: return null
+                    return wideCrop(e, bgCrop)?.let { LayerFile(file, it) }
+                }
                 return TimeVariant(time,
                     bg = slot("bg", "plate", base = bgCrop), body = slot("body", base = bodyCrop),
                     bodySolid = slot("bodySolid", "body_solid", base = solidCrop), drive = slot("drive", base = driveCrop),
                     bgBlur = slot("bgBlur", "bg_blur", "blur", base = bgCrop),
+                    paintBase = slot("paintBase", "paint_base", base = solidCrop), paintSpec = slot("paintSpec", "paint_spec", base = solidCrop),
+                    bgWide = wideSlot("bgWide", "bg_wide"), blurWide = wideSlot("blurWide", "blur_wide", "bgBlurWide"),
                     wheels = ownWheels, grade = grade(o.optJSONObject("grade")))
             }
             val times: Map<TimeOfDay, TimeVariant> = when (val tj = meta.opt("times")) {
@@ -357,7 +402,8 @@ class CarArt(
                     val o = e as? JSONObject
                     val ground = listOf("ground", "groundY", "groundLine").firstNotNullOfOrNull { k -> o?.optDouble(k, Double.NaN)?.takeIf { !it.isNaN() } }
                     val pivot = o?.optJSONArray("pivot")?.takeIf { it.length() >= 1 }?.getDouble(0)
-                    v to ViewSpec(file, ground?.toFloat(), pivot?.toFloat())
+                    v to ViewSpec(file, ground?.toFloat(), pivot?.toFloat(),
+                        paintBase = fileOf(o?.opt("paintBase") ?: o?.opt("paint_base"), null), paintSpec = fileOf(o?.opt("paintSpec") ?: o?.opt("paint_spec"), null))
                 }.toMap()
             } ?: emptyMap()
             // lamp overlays: same crop scheme as the layers (extra keys such as "synthetic" are ignored);
@@ -394,10 +440,48 @@ class CarArt(
                         dashes = it.optBoolean("dashes", true))
                 },
                 times = times, views = views, bgBlur = bgBlur, lights = lights,
+                paintBase = optLayer(layers.opt("paintBase") ?: layers.opt("paint_base"), solidCrop),
+                paintSpec = optLayer(layers.opt("paintSpec") ?: layers.opt("paint_spec"), solidCrop),
+                bgWide = optWide(layers.opt("bgWide") ?: layers.opt("bg_wide"), bgCrop),
+                blurWide = optWide(layers.opt("blurWide") ?: layers.opt("blur_wide"), bgCrop),
+                paintTintable = meta.optJSONObject("paint")?.optBoolean("tintable", false) ?: false,
+                paintNeutral = meta.optJSONObject("paint")?.optString("neutral")?.let { PaintColours.parseHex(it) }?.let { Color(it) } ?: Color.White,
             )
         }.getOrNull()
     }
 }
+
+/**
+ * The shell's paint folded into its grade: the shell is rendered in a flat [neutral] albedo, so the
+ * per-channel factor is chosen ÷ neutral (above one when the paint is lighter than the neutral,
+ * capped at 2). Both are per-channel multipliers, so the result is one colour matrix — cached per
+ * grade so the draw loop doesn't rebuild filters every frame. [plain] is the same tint alone, for
+ * the flat views, which are shells too.
+ */
+internal class ShellTint(paint: Color, neutral: Color) {
+    private fun factor(p: Float, n: Float) = if (n < 0.004f) 2f else (p / n).coerceIn(0f, 2f)
+    val r = factor(paint.red, neutral.red)
+    val g = factor(paint.green, neutral.green)
+    val b = factor(paint.blue, neutral.blue)
+    private var lastGrade: Grade? = null
+    private var lastFilter: ColorFilter? = null
+    fun filter(gr: Grade): ColorFilter? {
+        if (gr != lastGrade) {
+            lastGrade = gr
+            lastFilter = Grade(gr.r * r, gr.g * g, gr.b * b, gr.contrast, gr.brightness).filter
+        }
+        return lastFilter
+    }
+    val plain: ColorFilter? by lazy { Grade(r, g, b).filter }
+}
+
+/** A colour matrix that flattens whatever it draws to [tone], keeping only the alpha: a layer's silhouette in one colour. */
+private fun flatFilter(tone: Color): ColorFilter = ColorFilter.colorMatrix(androidx.compose.ui.graphics.ColorMatrix(floatArrayOf(
+    0f, 0f, 0f, 0f, tone.red * 255f,
+    0f, 0f, 0f, 0f, tone.green * 255f,
+    0f, 0f, 0f, 0f, tone.blue * 255f,
+    0f, 0f, 0f, 1f, 0f,
+)))
 
 /** The rendered truck's load state: decoding at start-up, the set, or nothing usable. */
 sealed interface CarArtState {
@@ -490,16 +574,52 @@ fun rememberViewArt(art: CarArt, view: VehicleView): TiltArt? {
  * its grade. Mid-crossfade the old and new are drawn over each other — or, when both are the same
  * bitmap and only the grade differs, once with the grade interpolated.
  */
-internal fun DrawScope.drawSlot(look: TimeLook, shared: Layer?, alpha: Float, filter: (Grade) -> ColorFilter?, own: (TimeLayers) -> Layer?) {
+internal fun DrawScope.drawSlot(
+    look: TimeLook, shared: Layer?, alpha: Float, filter: (Grade) -> ColorFilter?, blend: BlendMode = BlendMode.SrcOver, own: (TimeLayers) -> Layer?,
+) {
     val c = look.pick(look.cur, own(look.cur), shared) ?: return
     val p = look.prev?.let { look.pick(it, own(it), shared) }
     when {
-        p == null || look.blend >= 1f -> drawLayer(c.layer.image, c.layer.crop, filter(c.grade), alpha)
-        p.layer.image === c.layer.image -> drawLayer(c.layer.image, c.layer.crop, filter(Grade.lerp(p.grade, c.grade, look.blend)), alpha)
+        p == null || look.blend >= 1f -> drawLayer(c.layer.image, c.layer.crop, filter(c.grade), alpha, blend)
+        p.layer.image === c.layer.image -> drawLayer(c.layer.image, c.layer.crop, filter(Grade.lerp(p.grade, c.grade, look.blend)), alpha, blend)
         else -> {
-            drawLayer(p.layer.image, p.layer.crop, filter(p.grade), alpha)
-            drawLayer(c.layer.image, c.layer.crop, filter(c.grade), alpha * look.blend)
+            drawLayer(p.layer.image, p.layer.crop, filter(p.grade), alpha, blend)
+            drawLayer(c.layer.image, c.layer.crop, filter(c.grade), alpha * look.blend, blend)
         }
+    }
+}
+
+/**
+ * The scene camera the user can pinch: [zoom] scales the cover fit (0.5–1.2; below 0.75 the wide
+ * plate takes over, and without one the zoom stops where the plate still covers the panel), [pan]
+ * shifts it in screen px, clamped so the plate never leaves a gap. Both persist in Prefs. A
+ * two-finger drag is what an orbit would hang off later, if the set ever becomes live-rendered.
+ */
+data class SceneCamera(val zoom: Float = 1f, val pan: Offset = Offset.Zero)
+
+/** The cover fit of [fit] into [panel], and how a camera moves inside the [cover] extent that must keep the panel filled. */
+private class SceneFrame(val fit: Rect, val cover: Rect, val panel: Size, val zoomRange: ClosedFloatingPointRange<Float>) {
+    val coverScale = max(panel.width / fit.width, panel.height / fit.height)
+    fun scale(zoom: Float) = coverScale * zoom.coerceIn(zoomRange)
+    fun base(s: Float) = Offset((panel.width - fit.width * s) / 2f - fit.left * s, (panel.height - fit.height * s) / 2f - fit.top * s)
+    /** The drawing origin for [cam], its pan clamped so [cover] never leaves a gap (centred when it can't cover). */
+    fun origin(cam: SceneCamera): Offset {
+        val s = scale(cam.zoom)
+        val b = base(s) + cam.pan
+        fun clamp(v: Float, lo: Float, hi: Float) = if (lo > hi) (lo + hi) / 2f else v.coerceIn(lo, hi)
+        return Offset(clamp(b.x, panel.width - cover.right * s, -cover.left * s), clamp(b.y, panel.height - cover.bottom * s, -cover.top * s))
+    }
+    fun clamped(cam: SceneCamera): SceneCamera {
+        val z = cam.zoom.coerceIn(zoomRange)
+        return SceneCamera(z, origin(SceneCamera(z, cam.pan)) - base(scale(z)))
+    }
+    /** Zoom by [k] about [centroid] (the scene point under the fingers stays put) and pan by [delta]. */
+    fun transform(cam: SceneCamera, centroid: Offset, delta: Offset, k: Float): SceneCamera {
+        val z0 = cam.zoom.coerceIn(zoomRange)
+        val z1 = (z0 * k).coerceIn(zoomRange)
+        val o0 = origin(SceneCamera(z0, cam.pan))
+        val o1 = centroid - (centroid - o0) * (z1 / z0) + delta
+        return clamped(SceneCamera(z1, o1 - base(scale(z1))))
     }
 }
 
@@ -521,58 +641,95 @@ fun CarPhotoScene(
     timeOfDay: TimeOfDay = TimeOfDay.DAY,
     /** Off: no wheel spin, road motion, streaks, blur or drift — a still. */
     sceneMotion: Boolean = true,
+    /** The chosen paint for a tintable set's shell (every hour's) and nothing else; null leaves the shell as rendered. */
+    paint: Color? = null,
+    /** Card mode (the dashboard's Vehicle card): plate, shell, wheels and lamps only — no motion, callouts, plates or sweep — framed on the truck. */
+    card: Boolean = false,
+    /** Where the user has pinched the scene to; [onCamera] non-null attaches the two-finger pinch / pan and reports the clamped result. */
+    camera: SceneCamera = SceneCamera(),
+    onCamera: ((SceneCamera) -> Unit)? = null,
 ) {
     val cs = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
     val styles = rememberCalloutStyle()
+    val shellTint = remember(paint, art) { paint?.let { ShellTint(it, art.paintNeutral) } }
+    // Under a ghosted shell the innards sit in a dark volume, not clear glass: the shell's silhouette flattened to a dark tone.
+    val darkBase = remember(cs) { flatFilter(lerp(cs.surface, cs.background, 0.5f)) }
     val pxPerM = 1f / (art.unitsPerPx * CarArt.METRES_PER_UNIT)
-    val speedKph = if (sceneMotion) (state.tele.speedKph ?: 0.0).toFloat() else 0f
+    val speedKph = if (sceneMotion && !card) (state.tele.speedKph ?: 0.0).toFloat() else 0f
     val driftPx = with(LocalDensity.current) { 7.dp.toPx() }
-    val motion = rememberRoadMotion(speedKph, unitsPerM = pxPerM, gridUnits = GRID_PX, driftPx = driftPx)
+    // a card is a still, so it runs no frame loop at all
+    val motion = if (card) null else rememberRoadMotion(speedKph, unitsPerM = pxPerM, gridUnits = GRID_PX, driftPx = driftPx)
     val pitchShown by animateFloatAsState(state.att.pitch.coerceIn(-45f, 45f), tween(300), label = "pitch")
     val rollShown by animateFloatAsState(state.att.roll.coerceIn(-45f, 45f), tween(300), label = "roll")
     val driveGlow by animateFloatAsState(if (state.lens == Lens.ENERGY) 1f else 0.45f, tween(400), label = "drive")
     val look = rememberTimeLook(art, timeOfDay)
     val lamps = remember(state.tele, state.vehicle, timeOfDay) { lampsFor(state.tele, state.vehicle, timeOfDay) }
+    // Zooming out past 0.75 swaps to the wide plate; without one the zoom can't go below the cover fit.
+    val wideAvailable = look.cur.bgWide != null || art.bgWide != null
+    val zoomRange = (if (wideAvailable) 0.5f else 1f)..1.2f
+    val zoomNow = camera.zoom.coerceIn(zoomRange)
+    val wideBlend by animateFloatAsState(if (wideAvailable && zoomNow < 0.75f) 1f else 0f, tween(150), label = "wide")
+    val plateRect = art.bgCrop?.let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) } ?: Rect(0f, 0f, art.canvas.width, art.canvas.height)
+    val coverRect = (look.cur.bgWide ?: art.bgWide)?.crop?.let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) } ?: plateRect
+    val latestCamera by rememberUpdatedState(camera)
+    val gestures = if (onCamera == null || card) Modifier else Modifier.pointerInput(art, wideAvailable) {
+        detectTwoFingerTransform { centroid, pan, zoom ->
+            val frame = SceneFrame(Rect(0f, 0f, art.canvas.width, art.canvas.height), coverRect, Size(size.width.toFloat(), size.height.toFloat()), zoomRange)
+            onCamera(frame.transform(latestCamera, centroid, pan, zoom))
+        }
+    }
     // the blurred plate comes in with speed: nothing at rest, most of it by 100 km/h
     val speedFrac = (speedKph / 100f).coerceIn(0f, 1f)
     val blurBlend = 0.85f * speedFrac * speedFrac * (3f - 2f * speedFrac)
-    // Tyres lens: a plate colour per corner. Green while healthy, shading to amber as a tyre falls
-    // under the others (a soft cue — 12 % under the healthy median is fully amber), and the car's own
-    // TPMS flags decide the hard cases: over → amber, under → red. No reading → no colour (hairline).
+    // Tyres lens: a plate colour per corner. Green unless the car's TPMS flags it (under → red, over →
+    // amber), it sits well under its axle-mate (amber from 8 % under, fully at 16 % — a ute runs its
+    // rears harder than its fronts, so axles are never compared with each other), or it's under an
+    // absolute floor (red from 30 psi, fully at 26). No reading → no colour (hairline).
     val plateColours: List<Color?> = remember(state.tele.tyres, cs) {
         val tyres = state.tele.tyres
-        val healthy = tyres.mapNotNull { t -> t?.takeIf { it.state == 0 }?.psi }.sorted()
-        val median = if (healthy.isEmpty()) 0.0 else healthy[healthy.size / 2]
-        tyres.map { t: Tyre? ->
+        fun mate(c: Corner) = when (c) { Corner.LF -> Corner.RF; Corner.RF -> Corner.LF; Corner.LR -> Corner.RR; Corner.RR -> Corner.LR }
+        tyres.mapIndexed { i, t: Tyre? ->
             when {
                 t == null -> null
                 t.low -> cs.error
                 t.high -> cs.secondary
-                median <= 0.0 -> cs.good
-                else -> lerp(cs.good, cs.secondary, ((median - t.psi) / median / 0.12).toFloat().coerceIn(0f, 1f))
+                else -> {
+                    val m = tyres.getOrNull(mate(Corner.entries[i]).ordinal)?.takeIf { it.state == 0 && it.psi > 0 }?.psi
+                    val underMate = if (m == null) 0f else ((m - t.psi) / m).toFloat()
+                    val mateShade = ((underMate - 0.08f) / 0.08f).coerceIn(0f, 1f)
+                    val floorShade = ((30.0 - t.psi) / 4.0).toFloat().coerceIn(0f, 1f)
+                    lerp(lerp(cs.good, cs.secondary, mateShade), cs.error, floorShade)
+                }
             }
         }
     }
 
-    Canvas(modifier) {
-        // With a modelled scene the whole render canvas is the picture (cover); otherwise fit the
-        // truck plus room for its callouts.
+    Canvas(modifier.then(gestures)) {
+        // With a modelled scene the whole render canvas is the picture (cover), pinched by the
+        // camera; otherwise fit the truck plus room for its callouts.
         val hasScene = look.cur.bg != null || art.bgLayer != null
-        val fit = if (hasScene) Rect(0f, 0f, art.canvas.width, art.canvas.height)
-                  else Rect(art.content.left - 200f, art.content.top - 290f, art.content.right + 200f, art.content.bottom + 230f)
-        val s = if (hasScene) max(size.width / fit.width, size.height / fit.height) else min(size.width / fit.width, size.height / fit.height)
-        val ox = (size.width - fit.width * s) / 2f - fit.left * s
-        val oy = (size.height - fit.height * s) / 2f - fit.top * s
+        // A card frames the truck with a little road around it (cover, so the card is filled).
+        val fit = when {
+            card -> Rect(art.content.left - 140f, art.content.top - 150f, art.content.right + 140f, art.content.bottom + 70f)
+            hasScene -> Rect(0f, 0f, art.canvas.width, art.canvas.height)
+            else -> Rect(art.content.left - 200f, art.content.top - 290f, art.content.right + 200f, art.content.bottom + 230f)
+        }
+        val frame = if (hasScene && !card) SceneFrame(fit, coverRect, size, zoomRange) else null
+        val s = frame?.scale(camera.zoom)
+            ?: if (card) max(size.width / fit.width, size.height / fit.height) else min(size.width / fit.width, size.height / fit.height)
+        val origin = frame?.origin(camera) ?: Offset((size.width - fit.width * s) / 2f - fit.left * s, (size.height - fit.height * s) / 2f - fit.top * s)
+        val ox = origin.x
+        val oy = origin.y
         fun px(p: Offset) = Offset(ox + p.x * s, oy + p.y * s)
         val incline = state.lens == Lens.INCLINE && !state.home
         val plates = state.lens == Lens.TYRES && !state.home
         val pivotC = art.anchor("pivot")
-        val t = motion.clock.floatValue
-        val wheelAngle = motion.wheel.floatValue
-        val travel = motion.travel.floatValue
-        val driftC = motion.drift.floatValue / s
-        val blinkOn = (t * 1.3f) % 1f < 0.5f          // indicators at about 1.3 Hz
+        val t = motion?.clock?.floatValue ?: 0f
+        val wheelAngle = motion?.wheel?.floatValue ?: 0f
+        val travel = motion?.travel?.floatValue ?: 0f
+        val driftC = (motion?.drift?.floatValue ?: 0f) / s
+        val blinkOn = !card && (t * 1.3f) % 1f < 0.5f          // indicators at about 1.3 Hz
         val accent = cs.primary
         val avoid = avoidRight.toPx()
         // Each axis colours its own scale: bright ink while fine (the accent would vanish against the
@@ -595,12 +752,20 @@ fun CarPhotoScene(
             if (hasScene) {
                 // the backdrop, its blur and the road paint sway together; the truck holds still
                 withTransform({ translate(driftC, 0f) }) {
-                    drawSlot(look, art.bgLayer, 1f, graded) { it.bg }
-                    if (blurBlend > 0.01f) drawSlot(look, art.bgBlur, blurBlend, graded) { it.bgBlur }
-                    drawRoadMarkings(art, motion.metres.floatValue, paintDim, speedFrac)
+                    // the wide plate sits under the plate whenever there is one, so a zoom-out never shows a gap;
+                    // the plate itself fades out past 0.75
+                    if (wideAvailable) {
+                        drawSlot(look, art.bgWide, 1f, graded) { it.bgWide }
+                        if (blurBlend > 0.01f) drawSlot(look, art.blurWide, blurBlend, graded) { it.blurWide }
+                    }
+                    if (wideBlend < 0.995f) {
+                        drawSlot(look, art.bgLayer, 1f - wideBlend, graded) { it.bg }
+                        if (blurBlend > 0.01f) drawSlot(look, art.bgBlur, blurBlend * (1f - wideBlend), graded) { it.bgBlur }
+                    }
+                    drawRoadMarkings(art, motion?.metres?.floatValue ?: 0f, paintDim, speedFrac)
                 }
                 // keep the top readable for the stats and callouts
-                drawRect(Brush.verticalGradient(listOf(cs.background.copy(alpha = 0.6f), Color.Transparent), startY = 0f, endY = art.canvas.height * 0.45f),
+                if (!card) drawRect(Brush.verticalGradient(listOf(cs.background.copy(alpha = 0.6f), Color.Transparent), startY = 0f, endY = art.canvas.height * 0.45f),
                     topLeft = Offset(-art.canvas.width, -art.canvas.height), size = Size(art.canvas.width * 3, art.canvas.height * 1.45f))
                 // soft shadow under the truck
                 val gx = ground.map { it.x }; val gy = ground.map { it.y }
@@ -622,7 +787,7 @@ fun CarPhotoScene(
                 for ((name, corner) in listOf("groundRear" to Corner.RR, "groundFront" to Corner.RF, "groundFrontFar" to Corner.LF, "groundRearFar" to Corner.LR)) {
                     drawGroundPlate(art.anchor(name), along, depth, plateColours.getOrNull(corner.ordinal), cs.onSurface)
                 }
-            } else {
+            } else if (!card) {
                 // pool of light + pads under each wheel
                 for (gp in ground) {
                     drawOval(accent.copy(alpha = 0.16f), Offset(gp.x - 70f, gp.y - 6f), Size(140f, 14f))
@@ -635,13 +800,27 @@ fun CarPhotoScene(
             // The painted shell goes over the innards at (1 - xray): slid to 0 it hides them like a real car.
             // The ghost and driveline are theme-tinted, which is their whole colour, so the grade
             // skips them; the textured shell and wheels take it.
-            val order = listOf("body", "RL", "FL", "drive", "shell", "RR", "FR")
+            val order = if (card) listOf("RL", "FL", "shell", "RR", "FR") else listOf("base", "body", "RL", "FL", "drive", "shell", "RR", "FR")
             for (layer in order) when (layer) {
+                // the shell's silhouette as a dark volume under the ghosted innards, deepening as the x-ray opens,
+                // so the road, lamp pools and horizon stop showing through the truck (the paint panels are
+                // holes in a split shell, so both parts make the silhouette)
+                "base" -> if (state.xray > 0.005f) {
+                    drawSlot(look, art.bodySolidLayer, 0.85f * state.xray, { darkBase }) { it.bodySolid }
+                    drawSlot(look, art.paintBase, 0.85f * state.xray, { darkBase }) { it.paintBase }
+                }
                 "body" -> drawSlot(look, Layer(art.body, art.bodyCrop), 0.95f, { ColorFilter.tint(accent, BlendMode.Modulate) }) { it.body }
                 "drive" -> drawSlot(look, Layer(art.drive, art.driveCrop), driveGlow,
                     { ColorFilter.tint(if (state.lens == Lens.ENERGY) cs.tertiary else accent, BlendMode.Modulate) }) { it.drive }
-                "shell" -> if (state.xray < 0.995f)
-                    drawSlot(look, art.bodySolidLayer, (1f - state.xray).coerceIn(0f, 1f), graded) { it.bodySolid }
+                // The painted shell: chrome / glass / plastics as rendered, then the paint panels in the
+                // chosen colour (a neutral diffuse render times chosen ÷ neutral), then their clearcoat
+                // added on top. A set without paint panels (v1) is one painted shell, never tinted.
+                "shell" -> if (state.xray < 0.995f) {
+                    val a = (1f - state.xray).coerceIn(0f, 1f)
+                    drawSlot(look, art.bodySolidLayer, a, graded) { it.bodySolid }
+                    drawSlot(look, art.paintBase, a, { g -> shellTint?.filter(g) ?: g.filter }) { it.paintBase }
+                    drawSlot(look, art.paintSpec, a, graded, blend = BlendMode.Plus) { it.paintSpec }
+                }
                 else -> drawSlot(look, art.wheels[layer]?.frame(wheelAngle), if (layer == "RL" || layer == "FL") 0.75f else 1f, graded) {
                     it.wheels[layer]?.frame(wheelAngle)
                 }
@@ -653,10 +832,12 @@ fun CarPhotoScene(
                 lamp("fog", lamps.fog); lamp("reverse", lamps.reverse)
                 lamp("turnL", lamps.turnL && blinkOn); lamp("turnR", lamps.turnR && blinkOn)
             }
-            // light sweep across the body so it never looks like a still
-            val sweep = (t * 420f) % (art.canvas.width * 1.6f) - art.canvas.width * 0.3f
-            drawRect(Brush.horizontalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.10f), Color.Transparent), startX = sweep - 140f, endX = sweep + 140f),
-                topLeft = Offset(sweep - 140f, art.bodyCrop.y), size = Size(280f, art.bodyCrop.h))
+            if (!card) {
+                // light sweep the full height of the scene so it never looks like a still
+                val sweep = (t * 420f) % (art.canvas.width * 1.6f) - art.canvas.width * 0.3f
+                drawRect(Brush.horizontalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.10f), Color.Transparent), startX = sweep - 140f, endX = sweep + 140f),
+                    topLeft = Offset(sweep - 140f, 0f), size = Size(280f, art.canvas.height))
+            }
         }
         if (incline) {
             // The bracket scales stand just beyond each end of the truck, bulging out along its axis
@@ -678,7 +859,9 @@ fun CarPhotoScene(
         fun off(dx: Float, dy: Float) = Offset(dx * s, dy * s)
         fun co(anchor: Offset, at: Offset, title: String, value: String, color: Color) =
             callout(measurer, styles, cs, anchor, at, title, value, color, avoid)
-        if (state.home) {
+        if (card) {
+            // a card carries no callouts
+        } else if (state.home) {
             // The dashboard's stage: the card row covers the bottom, so everything hangs up and away.
             val te = state.tele
             co(px(art.anchor("battery")), px(art.anchor("battery")) + off(-330f, -330f), "Battery",

@@ -7,7 +7,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -152,7 +154,7 @@ fun Tile(
     val cs = MaterialTheme.colorScheme
     val litEdge = LocalStyle.current.litEdge
     Panel(modifier = modifier, onClick = onClick) {
-        Column(
+        BoxWithConstraints(
             Modifier
                 .fillMaxSize()
                 .drawBehind {
@@ -173,22 +175,41 @@ fun Tile(
                         )
                     }
                 }
-                .padding(20.dp),
-            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                IconBadge(icon, accent)
-                Spacer(Modifier.weight(1f))
-                if (value != null) {
-                    Text(value, style = MaterialTheme.typography.titleLarge, color = cs.onSurface, maxLines = 1)
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // Stacking the badge over two lines of text needs ~150 dp; the Menu's 4-row grid gives
+            // less than that on the unit, and its larger font scale then pushed the text right out of
+            // the tile (icons only, no titles). Below that the tile goes horizontal instead.
+            val compact = maxHeight < 150.dp
+            val labels: @Composable ColumnScope.() -> Unit = {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = cs.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (caption != null) {
                     Text(caption, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (compact) {
+                Row(
+                    Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    IconBadge(icon, accent)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp), content = labels)
+                    if (value != null) {
+                        Text(value, style = MaterialTheme.typography.titleLarge, color = cs.onSurface, maxLines = 1)
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                        IconBadge(icon, accent)
+                        Spacer(Modifier.weight(1f))
+                        if (value != null) {
+                            Text(value, style = MaterialTheme.typography.titleLarge, color = cs.onSurface, maxLines = 1)
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp), content = labels)
                 }
             }
         }

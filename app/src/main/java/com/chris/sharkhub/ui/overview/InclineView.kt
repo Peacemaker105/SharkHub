@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,8 +63,11 @@ fun InclineView(
     modifier: Modifier = Modifier,
     /** Strip along the right edge the screen's floating cards cover. */
     avoidRight: Dp = 0.dp,
+    /** The shell's paint for a tintable set — the flat views are shells too. */
+    paint: Color? = null,
 ) {
     val cs = MaterialTheme.colorScheme
+    val tint = remember(paint, art) { if (paint != null && art != null) ShellTint(paint, art.paintNeutral).plain else null }
     val pitch = status(att.pitch, PITCH_CAUTION, PITCH_DANGER, cs)
     val roll = status(att.roll, ROLL_CAUTION, ROLL_DANGER, cs)
     val view = if (showRoll) rollView else VehicleView.SIDE
@@ -81,7 +85,7 @@ fun InclineView(
             Crossfade(view, Modifier.weight(1f).fillMaxHeight(), animationSpec = tween(450), label = "view") { v ->
                 val side = v == VehicleView.SIDE
                 VehicleTilt(v, if (side) att.pitch else att.roll, (if (side) pitch else roll).second, Modifier.fillMaxSize(),
-                    art = art?.let { rememberViewArt(it, v) })
+                    art = art?.let { rememberViewArt(it, v) }, tint = tint)
             }
         }
         Box(Modifier.align(Alignment.TopCenter).padding(top = 14.dp)) {

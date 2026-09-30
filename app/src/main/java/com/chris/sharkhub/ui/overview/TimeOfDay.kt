@@ -102,11 +102,14 @@ enum class TimeOfDay(val id: String, val label: String, val defaultGrade: Grade)
     }
 }
 
-/** The "Scene lighting" option: [AUTO] follows the clock, anything else is a fixed [TimeOfDay] id. */
+/**
+ * The scene's lighting setting: [AUTO] ("Dynamic") follows the clock, anything else is a fixed
+ * [TimeOfDay] id. Dawn is something Dynamic produces, not one of the offered choices.
+ */
 object SceneLighting {
     const val AUTO = "auto"
-    val ids: List<String> = listOf(AUTO) + TimeOfDay.entries.map { it.id }
-    val labels: List<String> = listOf("Auto") + TimeOfDay.entries.map { it.label }
+    val choiceIds: List<String> = listOf(AUTO, TimeOfDay.DAY.id, TimeOfDay.DUSK.id, TimeOfDay.NIGHT.id)
+    val choiceLabels: List<String> = listOf("Dynamic", "Day", "Dusk", "Night")
 }
 
 /**

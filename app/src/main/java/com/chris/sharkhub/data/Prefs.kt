@@ -93,6 +93,22 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("scene_motion", true)
         set(v) = sp.edit().putBoolean("scene_motion", v).apply()
 
+    /** The truck shell's paint (opaque ARGB), applied by a tintable art set; see ui/overview/PaintColour.kt. */
+    var paintColour: Int
+        get() = sp.getInt("paint_colour", DEFAULT_PAINT)
+        set(v) = sp.edit().putInt("paint_colour", v).apply()
+
+    /** Where the truck scene is pinched to: a factor on the cover fit (0.5–1.2) and a pan in screen px. */
+    var sceneZoom: Float
+        get() = sp.getFloat("scene_zoom", DEFAULT_ZOOM)
+        set(v) = sp.edit().putFloat("scene_zoom", v).apply()
+    var scenePanX: Float
+        get() = sp.getFloat("scene_pan_x", 0f)
+        set(v) = sp.edit().putFloat("scene_pan_x", v).apply()
+    var scenePanY: Float
+        get() = sp.getFloat("scene_pan_y", 0f)
+        set(v) = sp.edit().putFloat("scene_pan_y", v).apply()
+
     /**
      * Which side of the screen the driver's climate zone sits on. Until chosen in Options it's
      * guessed from the region: the Shark 6 is sold both right- and left-hand drive.
@@ -133,6 +149,10 @@ class Prefs(ctx: Context) {
         const val DEFAULT_STYLE = "auto"
         const val DEFAULT_HOME_LAYOUT = "bento_stage"
         const val DEFAULT_HOME_BACKDROP = "waves"
+        /** Chris's Deep Sea Blue, sampled from his own head unit. */
+        val DEFAULT_PAINT: Int = 0xFF2B4566.toInt()
+        /** The cover fit was "a little too zoomed in"; this needs the wide plates, and clamps up to 1 without them. */
+        const val DEFAULT_ZOOM = 0.85f
 
         /**
          * Where the unit is, for the driving-side guess. The time zone beats the locale: head units
