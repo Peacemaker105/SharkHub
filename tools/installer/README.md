@@ -1,8 +1,8 @@
 # Shark Hub Installer
 
 A one-window Windows app for putting Shark Hub on a BYD Shark 6 for the first time, over Wi-Fi ADB.
-It walks the owner through getting the car into ADB mode (portrait screen, Settings → System, tap
-the **Factory Reset** text about 10 times, top button on), finds the car on the network if they
+It walks the owner through getting the car into ADB mode (portrait screen, Settings → System →
+Version, tap the **Factory Reset** text about 10 times, top button on), finds the car on the network if they
 don't know its IP, then installs the APK they choose.
 
 - **One portable exe** (`dist\SharkHubInstaller.exe`, ~300 KB). No installer, no runtime to add:

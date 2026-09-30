@@ -224,7 +224,7 @@
             <DockPanel Margin="0,0,0,8">
               <Border Style="{StaticResource StepBadge}"><TextBlock Text="2" Style="{StaticResource StepNumber}"/></Border>
               <StackPanel>
-                <TextBlock Style="{StaticResource StepText}">Open <Run FontWeight="SemiBold" Foreground="#EAF3FF">Settings → System</Run> and tap the <Run FontWeight="SemiBold" Foreground="#EAF3FF">Factory Reset</Run> text about 10 times, until a developer screen opens.</TextBlock>
+                <TextBlock Style="{StaticResource StepText}">Open <Run FontWeight="SemiBold" Foreground="#EAF3FF">Settings → System → Version</Run> and tap the <Run FontWeight="SemiBold" Foreground="#EAF3FF">Factory Reset</Run> text about 10 times, until a developer screen opens.</TextBlock>
                 <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0">Tap the words themselves. If a reset question ever pops up, press Cancel.</TextBlock>
               </StackPanel>
             </DockPanel>

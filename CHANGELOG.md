@@ -17,6 +17,46 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-01 — Claude Code — 0.2.0 on the car, verified; BYD factory apps pulled (Kanzi/Lottie)
+
+On-car session over Wi-Fi ADB (`adb connect 10.175.146.136:5555`).
+
+**Installed 0.2.0 on the car** (`adb install -r`, over 0.1.0, same key). Runs. Verified live on the
+real unit from screenshots:
+- Telemetry reads: outside 14°, range ~470 km, odo 21,883 km, battery 64%/48 km EV, fuel 61%/422 km,
+  tyres 37·37·41·41 psi. Readbacks confirmed: SOC-save target 70%, powertrain HEV, drive mode Eco.
+- Overview x-ray scene + Gauges render and populate (battery 64%; rpm/consumption 0 while parked —
+  getters resolve, scaling still needs a drive). Sentry screen renders (placeholder + 360 deep-link).
+- Not fired: the confirm-gated vehicle SETs (drive mode / terrain / SOC / climate) — Chris present but
+  wrapping up; do those next. Inclinometer needs a level-ground zero (read pitch 13° parked).
+
+**Bug found (Menu / old tile grid):** `Tile` (`ui/Components.kt`) clips the title/caption on the unit —
+`Arrangement.SpaceBetween` + fixed 20dp pad overflows at the head unit's font scale. Paparazzi missed
+it (fontScale 1.0). Main Dashboard is fine. Fix pending. Details in HANDOVER.
+
+**Docs:** corrected the ADB-mode path to **Settings → System → Version → tap Factory Reset ~10×**
+(Chris's correction) in both installers (`installer/.../MainActivity.kt`, `tools/installer/Installer.xaml`,
+`tools/installer/README.md`) and `README.md` / `CLAUDE.md`.
+
+**BYD factory tech pulled** (to `C:\dev\byd_factory\`, kept out of the repo — BYD's proprietary assets,
+private use only):
+- `com.byd.mycar` (BydMyCar.apk, 350 MB) draws the 3D car with **Kanzi** (Rightware). Model =
+  `byd_car.kzb` (82 MB, "KZBF", per market) — compiled Kanzi binary, needs Kanzi Studio to open/export,
+  so not reusable as a mesh. Our Meshy/pre-rendered pipeline stays.
+- `com.byd.dlc.drivingmode` (Rage Mode, 24 MB) also Kanzi (`vehicle_terrain.kzb`), with per-mode
+  **Lottie** animations (v5.8, 60 fps: mud/sand/snow/rock/wade/crawl/mountain/…) + particles + sprite
+  sequences. Not a video. Lottie files extracted to `byd_factory/DrivingMode_assets/`. Option: our own
+  mode animations via `lottie-compose`.
+
+**OverDrive Braveheart v51.6** downloaded to `byd_factory/` (88,177,260 B; the `braveheart` tag rolled
+past the old v51.2 in our notes). **Not installed** — car switched off first. Next on-car: install,
+enable its daemons (Diagnostics → Daemon storage), test whether a camera frame comes up.
+
+**Files:** `README.md`, `CLAUDE.md`, `HANDOVER.md`, `installer/src/main/java/.../MainActivity.kt`,
+`tools/installer/{Installer.xaml,README.md}`. **Verified:** on the car as above; edits compile-clean
+(text/wording only). **Open:** push (public repo — ask); install OverDrive + camera test; fix the Menu
+tile; on-car SET tests + inclinometer zero + a drive for gauge scaling.
+
 ## 2026-09-29 — Claude Code — Public on GitHub: fresh history, MIT, release v0.2.0
 
 Chris: "lets push this to github as a public repo". His choices were a fresh start for the history,

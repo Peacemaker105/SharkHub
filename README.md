@@ -70,8 +70,9 @@ You need ADB on the car once, for the first install. After that Shark Hub update
 
 1. With the truck switched on, **rotate the screen to portrait**. The hidden menu only shows in
    portrait.
-2. Open **Settings → System** and tap the **Factory Reset** text about 10 times, until a developer
-   screen opens. Tap the words themselves. If a reset question ever pops up, press **Cancel**.
+2. Open **Settings → System → Version** and tap the **Factory Reset** text about 10 times, until a
+   developer screen opens. Tap the words themselves. If a reset question ever pops up, press
+   **Cancel**.
 3. On that screen, tap the **top button** to switch ADB on.
 4. Put the car on the same Wi-Fi as your PC or phone. A phone hotspot is easiest.
 

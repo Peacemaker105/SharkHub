@@ -38,7 +38,7 @@ Package/applicationId: `com.chris.sharkhub`. Display name: "Shark Hub".
   (1920×1080, hdpi) on the JVM. Look at the PNGs after any UI change. Record-only — Home shows a live
   clock, so don't wire `verifyPaparazzi` into anything.
 - **adb:** `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe` (not on PATH).
-- **Sideload to the unit:** enable Wi-Fi ADB on the car (Settings → tap "Factory Reset" ~10×),
+- **Sideload to the unit:** enable Wi-Fi ADB on the car (Settings → System → Version → tap "Factory Reset" ~10×),
   `adb connect <car-ip>:5555`, `adb install -r app-debug.apk`. After first install, prefer the app's
   own Sideload screen + OTA. Full steps in `README.md` → Install.
 - **Signing:** every build — debug *and* release — is signed with the Shark Hub key when

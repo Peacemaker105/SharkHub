@@ -8,18 +8,52 @@ for what each session changed (add your own entry there before you finish).
   old history is on the local-only branch `private-history`, which must never be pushed. Release
   steps are in CLAUDE.md → Git and releases.
 - **Release v0.2.0** (2026-09-29): `SharkHub-0.2.0.apk`, `SharkHubInstaller-Android.apk` and
-  `SharkHubInstaller-Windows.exe`. `latest.json` on `main` points the updater at it. **The car still
-  runs 0.1.0**, whose updater has the old placeholder URL. Install 0.2.0 once by adb or Sideload, or
-  paste `https://raw.githubusercontent.com/Peacemaker105/SharkHub/main/latest.json` into Updates.
-  After that, OTA works.
+  `SharkHubInstaller-Windows.exe`. `latest.json` on `main` points the updater at it. The car now runs
+  **0.2.0** (installed by adb 2026-10-01); OTA will pick up the next release from `main`.
 - **Signing:** builds are signed with the Shark Hub key (`keystore.properties` → `%USERPROFILE%\.android\sharkhub-release.jks`); see CLAUDE.md.
 - **Target device (measured 2026-09-28):** BYD Shark 6, head unit by Desay SV — **Android 11 (API 30)**,
   `msmnile` (SA8155P), 1920×1080 @ 240 dpi, rotating screen (was in portrait), locale en-US but time
   zone Australia/Perth. Build `SOC_260811_S`. Raw data in `probe/2026-09-28/`.
 - **adb:** the BYD menu only offers "USB debugging", but TCP 5555 is open on Wi-Fi: with the car on
   Chris's phone hotspot, `adb connect 10.175.146.136:5555` worked (IP may change).
-- **Package:** `com.chris.sharkhub` — **installed on the car** (v0.1.0 debug, Shark Hub key). Home,
-  Service Probe and the Wi-Fi export verified working on the unit; other screens not yet exercised there.
+- **Package:** `com.chris.sharkhub` — **installed on the car** (v0.2.0 release, Shark Hub key).
+  Dashboard, overview, gauges and sentry verified rendering on the unit with live data (2026-10-01).
+
+## On-car session 2026-10-01 — 0.2.0 verified, BYD factory tech pulled
+- **0.2.0 runs on the car** and reads live telemetry: outside 14°, range ~470 km, odometer 21,883 km,
+  battery 64% / 48 km EV, fuel 61% / 422 km, **tyres 37·37·41·41 psi** ("normal"). Readbacks that
+  were guesses now confirm: **SOC-save target 70%**, **powertrain HEV**, **drive mode Eco**. The
+  overview x-ray scene and the Gauges screen render and populate (battery 64%; rpm/consumption sit at
+  0 while parked — getters resolve, scaling still needs a drive to confirm).
+- **Not yet checked:** rpm / L-per-100 / kWh-per-100 scaling under load; steering angle + compass read
+  blank at standstill; **inclinometer showed pitch 13° parked → needs "Zero on level ground"** for the
+  mount; fuel average (no fills logged); the confirm-gated SETs (drive mode / terrain / SOC save /
+  climate) were deliberately not fired — do those stationary with Chris.
+- **BUG — Menu (old tile grid, `HomeScreen`/`ui/Components.kt Tile`):** on the unit every tile shows
+  its icon + value but the **title/caption is clipped**. Cause: `Tile` uses `Arrangement.SpaceBetween`
+  with a fixed 20dp pad; at the head unit's larger font scale the icon row overflows and the bottom
+  text column is pushed past the tile edge. Paparazzi (fontScale 1.0) didn't catch it. Fix: give the
+  title priority / reduce pad / cap icon+value height. The main Dashboard (`ui/dash/`) is fine.
+- **BYD factory tech (pulled to `C:\dev\byd_factory\`, NOT in the repo — BYD's proprietary assets,
+  private use only, never commit/redistribute):**
+  - **3D car = `com.byd.mycar` (BydMyCar.apk, 350 MB), built on Kanzi** (Rightware; `libkanzi.so`,
+    `libkzcore/kzui/kzcoreui`). The model is **`assets/MC/byd_car.kzb`** (82 MB, "KZBF" v3), one per
+    market (MC/PA_RTL/ST/UKE/UKE_RTL). Compiled Kanzi binary — needs Kanzi Studio + source to open or
+    export, so **not reusable as a mesh**. Keep our Meshy/pre-rendered pipeline.
+  - **Rage Mode = `com.byd.dlc.drivingmode` (DrivingMode.apk, 24 MB), also Kanzi** (`vehicle_terrain.kzb`,
+    `vehicle.kzb`, 30 fps) with the per-mode graphics as **Lottie** (v5.8, 60 fps: `mud/sand/snow/rock/`
+    `wade/crawl/mountain/tract/skid_chain/rsca/uturn/4L/…`), plus a particle system + sprite-sequence
+    plugin for spray/dust. **Not a video.** The Lottie files are extracted to
+    `byd_factory/DrivingMode_assets/`. Idea: do our own mode animations with `lottie-compose` (same
+    technique), our own art.
+- **OverDrive Braveheart v51.6** downloaded to `byd_factory/overdrive-braveheart-v51.6.apk`
+  (88,177,260 B, from the rolling `braveheart` tag; the old v51.2 URL 404s now). **Not installed** —
+  the car was switched off first. **Next on-car:** `adb install overdrive-braveheart-v51.6.apk`, open
+  it, Diagnostics → Daemon storage (relocate), enable the Camera/Surveillance daemons, reboot if it
+  asks, and see if a camera frame comes up (camera order 8,9,5,4). Only `com.ts.avm` / `com.byd.avm`
+  (factory AVM) are installed otherwise.
+- **Docs:** the ADB-mode wording is corrected everywhere to **Settings → System → Version → tap
+  Factory Reset ~10×** (Chris confirmed the path). Committed locally; **not pushed** (public repo).
 
 ## Gauges, Denza-style overview layout, Glass HUD style (2026-09-29, late) — built, NOT on the car
 - **Gauges** (`ui/gauges/GaugesScreen.kt`, route `gauges`, Menu tile, dashboard shortcut): six round
