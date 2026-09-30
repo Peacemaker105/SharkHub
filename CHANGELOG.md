@@ -17,6 +17,42 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-01 — Claude Code — v2 truck layers rendered from BYD's own Shark 6 model (private pack)
+
+Render-side half of the Overview v2 work (the Kotlin loader was done by a parallel agent). Produces
+the gitignored `app/src/main/assets/car_private/` set the app prefers over `car/` when present.
+
+- **Tools (generic, in the repo):** `tools/model/render_v2.html` — three.js layer renderer for a
+  multi-part car GLB driven by a rig JSON (model path, up axis, scale, hubs, part names, textures,
+  scenery, time presets); `pack_v2.py` — greys + masks the driveline, WebP plates, resized elevation
+  views, meta assembly with a v1 key-set check, preview composites; `render_v2.py` — the one-command
+  wrapper (serve → browser `?auto=1` → wait for `v2_done.json` → pack); `serve.js` now takes extra
+  roots so the repo page, the private model and the chassis are served without copying. Notes and
+  traps in the new `tools/model/README.md`; pointer section in `design/model/README.md`.
+- **Scene:** same camera and meta schema as v1 (az 235 / el 9 / fov 32 / 2400×1750; `groundH`,
+  `road`, hubs, anchors, `unitsPerPx` all kept), scenery after Chris's BYD off-road reference:
+  BYD's own day / dusk / night horizon panoramas on a cylinder (their lake reflection is the water
+  beyond the far verge), Armco rail, baked double-yellow centre line (`road.dashes = false`), VSM
+  soft shadows, Sky.js environment (sun disc stripped for the env map), fog matched to the horizon
+  automatically. Four times of day (`times`), each with its own plate and painted shell (night also
+  its own wheel frames), a per-time grade for shared layers; elevation `views` (side 1400 / front
+  900 / rear 700 px) with ground row + pivot; `lights` overlays per lamp group from the Kanzi state
+  managers (head+DRL, tail, brake, fog, reverse; turn L/R synthesised from the DRL strips — the
+  model has no lightTurn nodes); `bgBlur` road-streaked plates per time. BYD's tyre atlas and AO
+  atlases mapped by material name; all car materials double-sided; the only Meshy asset left is
+  the DMO chassis inside `drive`, cut around its wheel wells and masked to the shell's outline.
+- **Paint:** placeholder = BYD's base colour (`#d0dfef`); re-render with
+  `python tools\model\render_v2.py --root C:\dev\byd_factory --rig render_v2/byd_shark6.rig.json --paint <hex> --out app\src\main\assets\car_private`.
+- **Files:** `tools/model/{render_v2.html, pack_v2.py, render_v2.py, serve.js, README.md}`,
+  `design/model/README.md`; private (not in git): `C:\dev\byd_factory\render_v2\byd_shark6.rig.json`,
+  `app/src/main/assets/car_private/` (126 files, ~16 MB of assets + ~6 MB of `preview_*.png`).
+- **Verified:** rendered and packed end to end through the one-command script; `v2_meta.json`
+  validated against the v1 key set; the five preview composites inspected (day / dawn / dusk /
+  night / day x-ray) — chassis sits inside the BYD body, no Meshy body anywhere. Not run through
+  Gradle/Paparazzi or on the car (the Kotlin agent owns that).
+- **Open / next:** Chris's real paint colour; whether the app should hide v1's dashes/posts on v2
+  plates (`road.dashes`); AI-painted plates are not needed — BYD's own panoramas cover the look.
+
 ## 2026-10-01 — Claude Code — 0.2.0 on the car, verified; BYD factory apps pulled (Kanzi/Lottie)
 
 On-car session over Wi-Fi ADB (`adb connect 10.175.146.136:5555`).
@@ -124,6 +160,64 @@ tile; on-car SET tests + inclinometer zero + a drive for gauge scaling.
   a WebP-only v2 will fall back to v1 in snapshots (fine on the unit); check roll direction of the
   rear/front views and the 900 ms crossfade on the unit; `getLastKnownLocation` may be empty on the
   head unit — then Auto uses the fixed hours.
+
+**Same session, after Chris's Denza reference photos (built + snapshots, NOT on the car):**
+- **Incline lens = HUD over the hero truck** (no camera switch; the 2D tipping views stay on the
+  Inclinometer screen). `CarPhotoScene`: thin perspective bracket scales beside the nose (pitch) and
+  behind the tail (roll), anchored to the meta's `nose`/`tail` and bulging along the truck's axis;
+  ticks every 5° over ±45°, the scale lit from level to the reading with a marker there (white while
+  fine, amber/red past the inclinometer thresholds), a floating "12° / Pitch angle" label that moves
+  above the scale when it would sit under the card column, a dashed level line behind the truck. The
+  first-brief `InclineView.kt` (readout cards beside a tipping truck) is kept but no longer used.
+- **Tyres lens: LED ground plates** under each tyre (`drawGroundPlate`, before the wheels so the tyre
+  sits on them), coloured by pressure: **`ThemeSpec.good`** — a new per-theme healthy green, exposed
+  as `ColorScheme.good` through the otherwise unused `tertiaryContainer` slot (`ui/theme/Theme.kt`)
+  — shading to amber as a tyre drops under the healthy median (12 % = fully amber), red on the car's
+  "under" flag, amber on "over", a hairline ladder when nothing is reported.
+- **Scene motion** (Options → Home screen → *Scene motion*, `Prefs.sceneMotion`, default on): road
+  dashes trail streaks ∝ speed with fading tails; a road-band motion-blur plate fades in 0 → 85 % by
+  100 km/h (`layers.bgBlur` / `times.<t>.bgBlur` from the meta, else `RoadBlur.fake` smears the
+  plate's road band once at load — quarter-res, 11 taps along the travel direction, fading in below
+  the horizon from `groundH`); the backdrop, blur and paint sway slowly (7 dp) from ~40 km/h, easing
+  to nothing at rest. Off = a still (no wheel spin either). Same withFrameNanos loop as the wheels.
+- **Lamps:** the meta may list `lights: {head, tail, brake, turnL, turnR, fog, reverse, drl}` (layer
+  crop scheme); lit ones composite additively over the body. States from readbacks only (`Lamps` /
+  `lampsFor` in `CarScene.kt`): brake = pedal > 5 %, indicators blink at ~1.3 Hz from
+  `Telemetry.turnLeft/turnRight`, fog from the frontFog/rearFog toggles, DRL from `drl`, reverse from
+  `Telemetry.reverse`; head lamps have no confirmed getter so they follow the time of day (dusk/night),
+  tail lamps take `positionLights` when reported, else the same fallback. `CarManager.readTelemetry`
+  adds `turnLeft/turnRight` (light `getTurnLightState(0|1)` > 0 — side and on-code are guesses),
+  `turnCode`, `turnFlashCode`, `headlightGroups` (`getGroupHeadlightState(0..3)` raw), `headlightMode`,
+  `positionLights` (`getPositionLightDisplayFeedCallback` > 0), `reverse` (gearbox `isInReverseGear`),
+  `gearCode` (`getCurrentGear`/`getGear`) — real names from the 2026-09-28 probe, never read on the car.
+- **Start-up flash fix:** `CarArtStore` decodes the set once per process on IO (kicked off in
+  `MainActivity.onCreate`, warming the current time-of-day plate too) and every screen shares it via
+  `rememberCarArt(): CarArtState` (Loading / Ready / Missing). While loading, the stage draws
+  `EmptyStage` (ground + light, no truck) and the truck crossfades in over 250 ms; the wireframe shows
+  only when both sets are missing. `overviewLoading` snapshot.
+- **Snapshots and privacy:** the v2 set landed mid-session (its WebP plates decode in Paparazzi after
+  all), so the tests now render the **public v1 set by default** — `-Psharkhub.snapshotPrivate=true`
+  renders `car_private/` instead (`app/build.gradle.kts` passes it to the test JVM); those PNGs were
+  copied to the gitignored `app/src/test/snapshots/private/` for judgement and must never be committed.
+  Tests renamed/added: `overviewInclineLevel`, `overviewInclineTilted` (old `overviewIncline*` removed),
+  `overviewTyresLow`, `overviewMoving` (80 km/h), `overviewNightLamps`, `overviewLoading`.
+- **v2 pack notes handled:** lamp keys `turn_L`/`turn_R` (and `turnLeft`/`turnRight`) accepted beside
+  `turnL`/`turnR`, extra lamp fields ignored; `road.dashes:false` stops the app's dashes and streaks
+  (the v2 plates have the centre line baked in — posts, blur and sway stay); the shared plate's blur is
+  not faked when every hour brings its own plate; `preview_*.png` excluded from the APK
+  (`androidResources.ignoreAssetsPattern`). The v2 meta's `wheels.<n>.pivotWorld/spinAxis/steerAxis`,
+  `views` frac fields, `camera`, `files`, `gradeFormula`, `model`, `paint` are read by nothing.
+- **Files:** `ui/overview/{CarPhotoArt.kt, CarScene.kt, OverviewScreen.kt, RoadBlur.kt (new)}`,
+  `ui/theme/Theme.kt`, `ui/dash/DashboardScreen.kt`, `ui/OptionsScreen.kt`, `data/Prefs.kt`,
+  `car/CarManager.kt` (Telemetry), `car/VehicleControls.kt` (`LS_ON/OFF` public), `MainActivity.kt`,
+  `app/build.gradle.kts`, `.gitignore`, `ScreenSnapshots.kt`.
+- **Verified:** 70 tests green (54 snapshots) recorded with both sets, every new PNG inspected (v1 in
+  the tracked folder, v2 in `snapshots/private/`), `:app:assembleDebug` built. **Not on the car.**
+- **Needs probe mapping / on-car confirmation:** turn-light side codes (0 = left, 1 = right?) and
+  on-value (> 0?), what `getTurnLightFlashState` means, which `getGroupHeadlightState` group follows
+  the headlight switch (then wire `head` from it), `getPositionLightDisplayFeedCallback` (> 0 = on?),
+  `isInReverseGear`, high beam (no getter identified); by eye: the fake blur's strength against a
+  rendered `bgBlur`, the 7 dp sway and streak length, the 1.3 Hz blink.
 
 ## 2026-09-29 — Claude Code — Public on GitHub: fresh history, MIT, release v0.2.0
 

@@ -414,6 +414,9 @@ class CarManager(private val appContext: Context) {
             }
             return null
         }
+        fun raw(c: Call): Any? = if (b.has(c)) runCatching { b.invoke(c) }.getOrNull() else null
+        fun int(c: Call): Int? = (raw(c) as? Number)?.toInt()
+        fun bool(c: Call): Boolean? = when (val v = raw(c)) { is Boolean -> v; is Number -> v.toInt() != 0; else -> null }
         fun tyre(corner: Corner): Tyre? {
             // getTyrePressureValueByType(area) reads in the unit the car displays — psi×10 on this
             // Shark 6 (probe 2026-09-28: 379/379/413/416 = 37.9–41.6 psi, and the kPa getter agreed
@@ -457,6 +460,19 @@ class CarManager(private val appContext: Context) {
             avgFuelL100 = d(Call("getAverageFuelConsumption", 0, device = "statistic"))?.takeIf { it in 0.0..60.0 },
             avgElecKwh100 = d(Call("getAverageElectricConsumption", 0, device = "statistic"))?.takeIf { it in -100.0..100.0 },
             coolantC = d(Call("getWaterTemperature", device = "statistic"))?.takeIf { it in -40.0..150.0 },
+            // Lamps and gear for the scene's lamp overlays. Names are real (probe 2026-09-28); the codes
+            // are guesses until read on the car: side 0 = left / 1 = right, and > 0 = on (an error or
+            // "invalid" code, typically negative, reads as off). Never read on the car yet.
+            turnLeft = int(Call("getTurnLightState", 0, device = "light"))?.let { it > 0 },
+            turnRight = int(Call("getTurnLightState", 1, device = "light"))?.let { it > 0 },
+            turnCode = int(Call("getTurnLightState", device = "light")),
+            turnFlashCode = int(Call("getTurnLightFlashState", device = "light")),
+            headlightGroups = (0..3).map { g -> int(Call("getGroupHeadlightState", g, device = "light")) }
+                .takeIf { l -> l.any { it != null } }?.map { it ?: -1 },
+            headlightMode = int(Call("getHeadlightControlMode", device = "light")),
+            positionLights = int(Call("getPositionLightDisplayFeedCallback", device = "light"))?.let { it > 0 },
+            reverse = bool(Call("isInReverseGear", device = "gearbox")),
+            gearCode = int(Call("getCurrentGear", device = "gearbox")) ?: int(Call("getGear", device = "gearbox")),
         )
     }
 
@@ -566,6 +582,21 @@ data class Telemetry(
     val avgFuelL100: Double? = null,
     val avgElecKwh100: Double? = null,
     val coolantC: Double? = null,
+    // ---- lamps and gear (light / gearbox devices; codes unverified on the car) ----
+    /** Indicator per side from getTurnLightState(side) — side 0 = left, 1 = right is a guess; null when the getter is absent. */
+    val turnLeft: Boolean? = null,
+    val turnRight: Boolean? = null,
+    /** getTurnLightState() and getTurnLightFlashState() as read, for the probe — meanings unknown. */
+    val turnCode: Int? = null,
+    val turnFlashCode: Int? = null,
+    /** getGroupHeadlightState(0..3) as read (−1 = absent), until the on-car check shows which group follows the headlight switch. */
+    val headlightGroups: List<Int>? = null,
+    val headlightMode: Int? = null,
+    /** Position (parking) lights from getPositionLightDisplayFeedCallback, > 0 = on (a guess). */
+    val positionLights: Boolean? = null,
+    /** isInReverseGear(); [gearCode] is getCurrentGear() / getGear() as read. */
+    val reverse: Boolean? = null,
+    val gearCode: Int? = null,
 )
 
 /** One corner's tyre reading. [state] is TYRE_PRESSURE_STATE_*: 0 normal, 1 over, 2 under. */

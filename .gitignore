@@ -43,3 +43,6 @@ design/model/*.glb
 # C:\dev\byd_factory). The app uses it when present and falls back to assets/car/ (Meshy truck).
 # Never ships in the public repo.
 app/src/main/assets/car_private/
+
+# Screenshot-test renders of the private set (recordPaparazziDebug -Psharkhub.snapshotPrivate=true), for local judgement only
+app/src/test/snapshots/private/

@@ -19,6 +19,32 @@ for what each session changed (add your own entry there before you finish).
 - **Package:** `com.chris.sharkhub` — **installed on the car** (v0.2.0 release, Shark Hub key).
   Dashboard, overview, gauges and sentry verified rendering on the unit with live data (2026-10-01).
 
+## Overview v2 direction (2026-10-01, evening) — Chris's reference: the Denza / Fang Cheng Bao off-road page
+Two photos of that head unit are in `C:\dev\byd_factory\refs\denza_offroad_{incline,xray}.jpg`
+(private, his photos of BYD's UI). The rule he set: the Overview's **Incline lens keeps the hero 3D
+scene** and draws the instrumentation over it — thin perspective bracket arcs at the nose (pitch)
+and tail (roll) with "4° / Pitch angle" labels and the floating card column on the right — while
+the **dedicated Inclinometer page keeps the 2D tipping views**. The segmented lit ground plates
+under each tyre belong to the **Tyres lens only**: green (a new themed `good` colour) when healthy,
+amber → red as a tyre gets low, and not on the other lenses. Also asked for: a **moving scene**
+tied to speed (dash streaks, a blurred road band crossfaded in with speed, slow backdrop parallax;
+dead still at 0 km/h; Options "Scene motion" switch to go static) and **working lights** on the
+truck — lit-lamp overlay layers per lamp group (head/DRL, tail, brake, turn L/R, fog) composited
+from real car states where mapped (brake pedal is), time-of-day fallback for head/tail only, and a
+"needs probe mapping" list for the rest. Two rules from watching it: the old Meshy body must never
+appear under the BYD truck in any layer (only the DMO chassis, and only inside the x-ray `drive`
+layer), and the Canvas wireframe fallback must not flash on start-up while the layers decode (draw
+the scene without a truck until the art is ready, fade it in; wireframe only on a real load failure). The x-ray photo (transparent body, chassis, psi callouts, pedal bars) is what our Tyres /
+Electric lenses already do. Two agents built this: Kotlin side committed (f233d80, then the Denza
+rework), render side into the gitignored `car_private/` pack (see CHANGELOG for its result). Paint
+colour for the private render is still unconfirmed by Chris (BYD's base is a pale steel blue).
+**Re-render the private pack** (about a minute; needs `node serve.js` + the browser pane, see
+`tools/model/README.md`): `python tools\model\render_v2.py --root C:\dev\byd_factory --rig
+render_v2/byd_shark6.rig.json --paint <srgb-hex> --out app\src\main\assets\car_private`. The pack is
+126 files / 22 MB incl. 5.8 MB of `preview_*.png` (excluded from the APK). Meta extras: `times`
+(day PNG, dawn/dusk/night WebP plates, lit `bodySolid`, night wheels, `bgBlur`, `grade`), `views`,
+`lights` (head/tail/brake/turn_L/turn_R/fog/reverse), `road.dashes=false` (double yellow line baked in).
+
 ## On-car session 2026-10-01 — 0.2.0 verified, BYD factory tech pulled
 - **0.2.0 runs on the car** and reads live telemetry: outside 14°, range ~470 km, odometer 21,883 km,
   battery 64% / 48 km EV, fuel 61% / 422 km, **tyres 37·37·41·41 psi** ("normal"). Readbacks that
@@ -48,15 +74,25 @@ for what each session changed (add your own entry there before you finish).
     `Interior_*`, `HoodinEngine`, `Trunk_hood_*`. **Next:** proper materials (clearcoat paint in his
     colour, glass, chrome), find the wheel hub centres from the wheel meshes' bboxes, then render it
     through `tools/model/render.html` into the overview layers for a **private** build (never the
-    public repo). `UKE_RTL` would need the Kanzi scene-graph transforms (RootNode prefab: node =
+    public repo). **Textures:** BYD's own maps are decoded in `byd_factory/pa_rtl_textures_png/`
+    (wheel atlas `PA_tire1`, AO atlases `PA_ao_gray`/`PA_suliao_ao_gray`/`PA_dou_ao_gray`, interior
+    maps, and the 8192x1880 `pano_day/dusk/night` backdrops) via `byd_factory/astc4x4.py`; the model
+    has one UV set (TEXCOORD_0) and every primitive is named for its BYD material. The app-side plan
+    is a gitignored `app/src/main/assets/car_private/` pack (v2 layers + `times` + `views` in the
+    meta) with fallback to `assets/car/`. `UKE_RTL` would need the Kanzi scene-graph transforms (RootNode prefab: node =
     name id, '' , metaclass idx, nprops, {prop id, value}…; prop 7 = SRT as 3+4+3 floats) — parked.
   - **Rage Mode = `com.byd.dlc.drivingmode` (DrivingMode.apk, 24 MB), also Kanzi** (30 fps) with the
     per-mode graphics as **Lottie** (v5.8, 60 fps: `mud/sand/snow/rock/wade/crawl/mountain/tract/
     skid_chain/rsca/uturn/4L/…`), plus a particle system + sprite-sequence plugin. **Not a video.**
     Lottie files are in `byd_factory/DrivingMode_assets/`. Its scene files (`vehicle.kzb`,
-    `vehicle_terrain.kzb`, `resource.kzb`, `main_project.kzb`) are **not in the APK** — next time on
-    adb: `find / -name "*.kzb" 2>/dev/null`, pull them (Chris expects just the Shark in there; the
-    terrain scene is useful too). Idea: our own mode animations with `lottie-compose`, our own art.
+    `vehicle_terrain.kzb`, `resource.kzb`, `main_project.kzb`) live in `/system/app/DrivingMode/files/
+    kanzi/` — **pulled 2026-10-01** to `C:\dev\byd_factory\ragemode\` (plus `Climb.MP4` / `Traction.MP4`:
+    those two visualisations are video). `vehicle.kzb` is the Rage Shark with the x-ray driveline
+    (engine, both e-motors, battery/cells, fuel tank, animated energy-flow pipeline, suspension,
+    shocks); decoded to `byd_factory/byd_car_rage.glb` + textures + BYD's HDR env maps (`rage_hdr/`),
+    but its wheels and some driveline parts sit in local frames placed by prefab instances with
+    rotations — **placement is the open follow-up** (see byd_factory/README.md) before it can replace
+    the Meshy chassis in the Electric lens. Idea: our own mode animations with `lottie-compose`.
 - **OverDrive Braveheart v51.6** downloaded to `byd_factory/overdrive-braveheart-v51.6.apk`
   (88,177,260 B, from the rolling `braveheart` tag; the old v51.2 URL 404s now). **Not installed** —
   the car was switched off first. **Next on-car:** `adb install overdrive-braveheart-v51.6.apk`, open

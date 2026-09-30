@@ -124,7 +124,8 @@ fun OverviewScreen(nav: NavController, car: CarManager) {
     val timeOfDay = rememberTimeOfDay(prefs.sceneLighting)
     OverviewContent(nav, car, tele, vehicle, discovery?.backend != null, att, heading, last,
         initialXray = prefs.carXray, onXrayChange = { prefs.carXray = it },
-        rollView = if (prefs.inclinoRollView == "rear") VehicleView.REAR else VehicleView.FRONT, timeOfDay = timeOfDay)
+        rollView = if (prefs.inclinoRollView == "rear") VehicleView.REAR else VehicleView.FRONT, timeOfDay = timeOfDay,
+        sceneMotion = prefs.sceneMotion)
 }
 
 /** Stateless body — also what the screenshot tests render. */
@@ -139,16 +140,16 @@ fun OverviewContent(
     heading: Float?,
     lastResult: CommandResult?,
     initialLens: Lens = Lens.TYRES,
-    /** The rendered truck; null draws the Canvas wireframe instead. Screens load it with [rememberCarArt]. */
-    art: CarArt? = rememberCarArt(),
+    /** The rendered truck's load state — the process-wide set from [rememberCarArt]; the wireframe only when there is none. */
+    art: CarArtState = rememberCarArt(),
     initialXray: Float = 1f,
     onXrayChange: (Float) -> Unit = {},
     /** Which end of the truck the pitch/roll card shows — the inclinometer's front/rear choice. */
     rollView: VehicleView = VehicleView.FRONT,
     /** The light the scene is drawn in; screens take it from [rememberTimeOfDay]. */
     timeOfDay: TimeOfDay = TimeOfDay.DAY,
-    /** Incline lens: start on the roll (end) view rather than the side view. */
-    initialInclineRoll: Boolean = false,
+    /** Whether the scene moves with road speed (Options → Scene motion). */
+    sceneMotion: Boolean = true,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -165,7 +166,7 @@ fun OverviewContent(
     val pick: (VehicleSelector, SelectorOption) -> Unit = { sel, o ->
         confirm = "Switch ${sel.label.lowercase()} to ${o.label}?" to { car.setSelector(sel, o) }
     }
-    val scene = SceneState(tele, att, lens, powerNow?.label, xray)
+    val scene = SceneState(tele, att, lens, powerNow?.label, xray, vehicle = vehicle)
     val setXray: (Float) -> Unit = { xray = it; onXrayChange(it) }
 
     Column(Modifier.fillMaxSize()) {
@@ -183,14 +184,14 @@ fun OverviewContent(
         if (isPortrait()) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(end = 20.dp, bottom = 16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, initialInclineRoll,
+                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion,
                     Modifier.fillMaxWidth().height(440.dp)) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.fillMaxWidth().padding(start = 20.dp))
             }
         } else {
             // the scene owns everything left of the mode column and meets the screen's left edge
             Row(Modifier.weight(1f).fillMaxWidth().padding(end = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, initialInclineRoll,
+                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion,
                     Modifier.weight(1f).fillMaxHeight()) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.width(216.dp).fillMaxHeight())
             }
@@ -210,22 +211,22 @@ fun OverviewContent(
 
 @Composable
 private fun ScenePanel(
-    scene: SceneState, art: CarArt?, tele: Telemetry, att: Attitude, heading: Float?, rollView: VehicleView, lens: Lens,
-    xray: Float, onXray: (Float) -> Unit, timeOfDay: TimeOfDay, initialInclineRoll: Boolean, modifier: Modifier, onLens: (Lens) -> Unit,
+    scene: SceneState, art: CarArtState, tele: Telemetry, att: Attitude, heading: Float?, rollView: VehicleView, lens: Lens,
+    xray: Float, onXray: (Float) -> Unit, timeOfDay: TimeOfDay, sceneMotion: Boolean, modifier: Modifier, onLens: (Lens) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val r = LocalStyle.current.panelRadius
-    var inclineRoll by remember { mutableStateOf(initialInclineRoll) }
     val cards = 178.dp + 22.dp
     // square off the left edge — the scene runs to the edge of the screen
     Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
         Box(Modifier.fillMaxSize()) {
-            // The Incline lens is a camera change: the hero scene fades out and the flat tilt view fades in.
-            Crossfade(lens == Lens.INCLINE, animationSpec = tween(650), label = "camera") { incline ->
-                when {
-                    incline -> InclineView(att, art, timeOfDay, rollView, inclineRoll, { inclineRoll = it }, Modifier.fillMaxSize(), avoidRight = cards)
-                    art != null -> CarPhotoScene(scene, art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay)
-                    else -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
+            // While the art decodes the stage stands empty; the truck fades in when it arrives. The
+            // wireframe only ever shows when there is no art at all.
+            Crossfade(art, animationSpec = tween(250), label = "stage") { st ->
+                when (st) {
+                    is CarArtState.Ready -> CarPhotoScene(scene, st.art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay, sceneMotion = sceneMotion)
+                    CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
+                    CarArtState.Missing -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
                 }
             }
             // top-left: speed + stats
@@ -264,8 +265,8 @@ private fun ScenePanel(
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) {
                 SegmentedControl(Lens.entries.map { it.label }, lens.ordinal) { onLens(Lens.entries[it]) }
             }
-            // Shell ↔ x-ray: only when the painted shell was rendered, and not on the flat tilt views. Kept narrow so it clears the lens tabs.
-            if (art?.bodySolid != null && lens != Lens.INCLINE) {
+            // Shell ↔ x-ray: only when the painted shell was rendered. Kept narrow so it clears the lens tabs.
+            if (art.art?.bodySolid != null) {
                 Column(Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 6.dp).width(150.dp)) {
                     Slider(value = xray, onValueChange = onXray, modifier = Modifier.fillMaxWidth().height(28.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

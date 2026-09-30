@@ -36,7 +36,9 @@ Package/applicationId: `com.chris.sharkhub`. Display name: "Shark Hub".
   ```
 - **Screen previews without a device:** `recordPaparazziDebug` renders each screen at head-unit size
   (1920×1080, hdpi) on the JVM. Look at the PNGs after any UI change. Record-only — Home shows a live
-  clock, so don't wire `verifyPaparazzi` into anything.
+  clock, so don't wire `verifyPaparazzi` into anything. The tracked snapshots always render the public
+  `assets/car/` truck; `-Psharkhub.snapshotPrivate=true` renders the private `car_private/` pack into
+  the gitignored `app/src/test/snapshots/private/` instead (never commit those).
 - **adb:** `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe` (not on PATH).
 - **Sideload to the unit:** enable Wi-Fi ADB on the car (Settings → System → Version → tap "Factory Reset" ~10×),
   `adb connect <car-ip>:5555`, `adb install -r app-debug.apk`. After first install, prefer the app's

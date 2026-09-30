@@ -21,6 +21,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { HDRCubeTextureLoader } from 'three/addons/loaders/HDRCubeTextureLoader.js';
 
 // ============================================================================================
 // v2 layer renderer: a multi-part car GLB (parts named, materials named, wheel hubs known) is
@@ -82,7 +83,7 @@ const texBase = T.base || '';
 const loader = new THREE.TextureLoader();
 async function loadTex(file, { srgb = false, flipY = true, repeat = 0, wrap = false } = {}) {
   if (!file) return null;
-  const t = await new Promise((res) => loader.load(texBase + file, res, undefined, () => res(null)));
+  const t = await new Promise((res) => loader.load(file.startsWith('/') || file.startsWith('http') ? file : texBase + file, res, undefined, () => res(null)));
   if (!t) { console.warn('texture missing:', file); return null; }
   t.flipY = flipY; t.anisotropy = 8; t.needsUpdate = true;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
@@ -90,7 +91,8 @@ async function loadTex(file, { srgb = false, flipY = true, repeat = 0, wrap = fa
   return t;
 }
 const texFlip = T.flipY !== false;               // the decoded atlases' row order vs the model's UV origin — set in the rig once checked by eye
-const tyreMap = await loadTex(T.tyreMap, { srgb: true, flipY: texFlip });
+const tyreMap = await loadTex(T.tyreMap, { srgb: true, flipY: T.tyreFlipY == null ? texFlip : T.tyreFlipY });
+const tyreNormal = T.tyreNormal ? await loadTex(T.tyreNormal, { flipY: T.tyreFlipY == null ? texFlip : T.tyreFlipY }) : null;
 const aoPaint = await loadTex(T.ao && T.ao.paint, { flipY: texFlip });
 const aoPlastic = await loadTex(T.ao && T.ao.plastic, { flipY: texFlip });
 const aoTub = await loadTex(T.ao && T.ao.tub, { flipY: texFlip });
@@ -120,7 +122,7 @@ const skidMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, metalness: 0.7
 const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0c1014, metalness: 0.0, roughness: 0.04, transparent: true, opacity: 0.6, side: DS, depthWrite: false, envMapIntensity: 1.3 });
 const lampCoverMat = new THREE.MeshPhysicalMaterial({ color: 0x9aa4ac, metalness: 0.0, roughness: 0.03, transparent: true, opacity: 0.28, side: DS, depthWrite: false, envMapIntensity: 1.3 });   // headlamp covers are clear
 const fritMat = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.35, metalness: 0.1, side: DS });
-const tyreMat = new THREE.MeshStandardMaterial({ color: tyreMap ? 0xffffff : 0x151515, map: tyreMap, roughness: 0.88, metalness: 0.0, side: DS });
+const tyreMat = new THREE.MeshStandardMaterial({ color: tyreMap ? 0xffffff : 0x151515, map: tyreMap, roughness: 0.88, metalness: 0.0, side: DS, normalMap: tyreNormal, normalScale: new THREE.Vector2(0.7, 0.7) });
 const caliperMat = new THREE.MeshStandardMaterial({ color: tyreMap ? 0xffffff : 0x3a3a3c, map: tyreMap, roughness: 0.6, metalness: 0.2, side: DS });
 const plasticAoMat = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.62, metalness: 0.05, side: DS, aoMap: aoPlastic, aoMapIntensity: aoPlastic ? 1.0 : 0 });
 const tubMat = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.7, metalness: 0.05, side: DS, aoMap: aoTub, aoMapIntensity: aoTub ? 1.0 : 0 });
@@ -128,8 +130,8 @@ const plasticMat = new THREE.MeshStandardMaterial({ color: 0x141517, roughness: 
 const fabricMat = new THREE.MeshStandardMaterial({ color: 0x1e1f23, roughness: 0.92, side: DS });
 const whiteMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, side: DS });
 const underMat = new THREE.MeshStandardMaterial({ color: 0x0a0b0c, roughness: 0.95, side: DS });
-const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.05, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.FrontSide });
-const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.05, transparent: true, opacity: 0.14, depthWrite: false, side: THREE.FrontSide });   // thin fill: the chassis is the subject of the x-ray
+const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.62 });
 const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, side: DS });                       // cuts the near wheels behind the arches
 const shadowOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: DS });   // casts the truck's shadow into the bg plate
 const lampGlass = (color, opacity) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.05, metalness: 0, transparent: true, opacity, side: DS, depthWrite: false, clearcoat: 1 });
@@ -206,7 +208,11 @@ const glows = new THREE.Group(); glows.name = 'glows'; bodyGroup.add(glows);
 function addGlow(mesh, color, size, opacity, kind) {
   const bb = new THREE.Box3().setFromObject(mesh); const c = bb.getCenter(new THREE.Vector3());
   bodyGroup.worldToLocal(c);
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity, depthTest: false, depthWrite: false, fog: false }));
+  // depth-tested and pushed 12 cm outward from the lens (−X at the nose, +X at the tail, and up for a
+  // roof-mounted lamp), so the halo sits just in front of its lens and bodywork occludes it — no glow
+  // through the cab or over the roof rails
+  c.x += (c.x < 0 ? -0.12 : 0.12); if (c.z > 1.45) c.z += 0.06;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity, depthTest: true, depthWrite: false, fog: false }));
   s.position.copy(c); s.scale.set(size, size, 1); s.renderOrder = 20; s.userData.kind = kind; s.visible = false; glows.add(s); return s;
 }
 function lampFor(o) {
@@ -229,7 +235,7 @@ function materialFor(o) {
   // a Kanzi lamp state manager on the node wins over the material name (BYD tags projector lenses plasticBlack_ao, DRL strips chrome)
   if (m === 'glasslight' || (st && !st.includes('glassline'))) {
     const L = lampFor(o); o.userData.lamp = L;
-    if (L.glow) L.sprites = [addGlow(o, L.glow[0], L.glow[1] * 0.9, L.glow[2], L.kind), addGlow(o, L.glow[0], L.glow[1] * 1.8, L.glow[2] * 0.25, L.kind)];
+    if (L.glow) L.sprites = [addGlow(o, L.glow[0], L.glow[1] * 0.8, L.glow[2], L.kind), addGlow(o, L.glow[0], L.glow[1] * 1.5, L.glow[2] * 0.18, L.kind)];
     lamps.push(o);
     return L.unlit;
   }
@@ -337,6 +343,32 @@ if (rig.chassis && rig.chassis.model) {
 }
 scene.add(drive);
 
+// World-space centroids of the chassis regions the callouts point at, from the aligned mesh itself:
+// engine = above the axle line ahead of the front axle, motors = around each axle, battery = the
+// floor pack between them (Meshy gives one unnamed mesh, so regions by position are the best we have).
+function chassisAnchors() {
+  let mesh = null; drive.traverse((o) => { if (!mesh && o.isMesh && o.visible) mesh = o; });
+  if (!mesh) return null;
+  drive.updateMatrixWorld(true);
+  const P = mesh.geometry.attributes.position, I = mesh.geometry.index ? mesh.geometry.index.array : null;
+  const v = new THREE.Vector3(), acc = { engine: [0, 0, 0, 0], battery: [0, 0, 0, 0], frontMotor: [0, 0, 0, 0], rearMotor: [0, 0, 0, 0] };
+  const seen = new Uint8Array(P.count);
+  const idx = I ? I : Array.from({ length: P.count }, (_, i) => i);
+  for (const i of idx) {
+    if (seen[i]) continue; seen[i] = 1;
+    v.fromBufferAttribute(P, i).applyMatrix4(mesh.matrixWorld);
+    let k = null;
+    if (v.x < fx - 0.06 && v.y > ay + 0.02) k = 'engine';
+    else if (Math.abs(v.x - fx) <= 0.16 && Math.abs(v.y - ay) < 0.09 && Math.abs(v.z) < tr * 0.7) k = 'frontMotor';
+    else if (Math.abs(v.x - rx) <= 0.2 && Math.abs(v.y - ay) < 0.09 && Math.abs(v.z) < tr * 0.7) k = 'rearMotor';
+    else if (v.x > fx + 0.18 && v.x < rx - 0.22 && v.y > ay - 0.12 && v.y < ay + 0.04) k = 'battery';
+    if (k) { const a = acc[k]; a[0] += v.x; a[1] += v.y; a[2] += v.z; a[3]++; }
+  }
+  const out = {};
+  for (const k of Object.keys(acc)) { const a = acc[k]; if (a[3] < 50) return null; out[k] = [a[0] / a[3], a[1] / a[3], 0]; }   // z = 0: callouts sit on the centreline like v1
+  return out;
+}
+
 // ---------------------------------------------------------------- lights, sky, environment
 const sun = new THREE.DirectionalLight(0xffffff, 3);
 sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096);
@@ -359,6 +391,16 @@ skyEnv.material.fragmentShader = skyEnv.material.fragmentShader.replace('vSunE *
 skyEnv.material.needsUpdate = true;
 const envScene = new THREE.Scene(); envScene.add(skyEnv);
 let envRT = null;
+// optional HDR cubemaps (Radiance .hdr faces): { prefix, suffix, faces? } → prefix + face + suffix
+const envCubeCache = {};
+async function loadEnvCube(name, spec) {
+  if (envCubeCache[name] !== undefined) return envCubeCache[name];
+  const faces = spec.faces || ['posX', 'negX', 'posY', 'negY', 'posZ', 'negZ'];
+  const urls = faces.map((f) => (spec.prefix || '') + f + (spec.suffix || ''));
+  const tex = await new Promise((res) => new HDRCubeTextureLoader().load(urls, res, undefined, (e) => { console.warn('env cube missing', name, e); res(null); }));
+  envCubeCache[name] = tex;
+  return tex;
+}
 scene.fog = new THREE.Fog(0xc9d6e2, 30, 400);
 // head lamps light the road at night (bg pass only matters, harmless otherwise). Aimed short: the
 // frame only shows the first few metres of road ahead of the bumper, so that is where the pool must be.
@@ -369,6 +411,16 @@ for (const s of [-1, 1]) {
   sp.target.position.set(fx - 1.6, g, s * tr * 1.0); scene.add(sp); scene.add(sp.target); headSpots.push(sp);
 }
 const tailGlow = new THREE.PointLight(0xff2a1a, 0, 2.5, 2); tailGlow.position.set(rx + 0.62, ay + 0.28, 0); scene.add(tailGlow);   // just behind the tailgate
+// key light for the driveline pass only (from the camera's side, no shadows): crisp, high-contrast innards
+const driveKey = new THREE.DirectionalLight(0xffffff, 2.4); driveKey.visible = false; scene.add(driveKey); scene.add(driveKey.target);
+// soft contact shadow baked into the plates (the app can drop its own oval for v2: meta.contactShadow)
+const contact = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 256; const g2 = c.getContext('2d');
+  const gr = g2.createRadialGradient(128, 128, 0, 128, 128, 128); gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(0.45, 'rgba(0,0,0,0.32)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g2.fillStyle = gr; g2.fillRect(0, 0, 256, 256);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(wb * 1.25, tr * 2 * 1.55), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, fog: false }));
+  m.rotation.x = -Math.PI / 2; m.position.set(midX, g + 0.004, 0); m.renderOrder = 5; m.visible = false; scene.add(m); return m;
+})();
 
 // ---------------------------------------------------------------- the modelled scene: two-lane highway, verges, plain, ranges, stars
 // Same camera as the truck. The truck sits in the LEFT lane (Australia): its centreline is z = 0, the
@@ -551,9 +603,9 @@ const stars = (() => {
 // `pano` names a strip in the rig's textures.panos (BYD's own day / dusk / night horizons); without
 // one the procedural Sky + ridges are used. Presets in the rig (`times`) override these.
 const TIMES = Object.assign({
-  day:   { pano: 'day', sun: { az: 250, el: 60, color: 0xf6f8ff, intensity: 2.8 }, sky: { turbidity: 2.4, rayleigh: 2.2, mie: 0.003, mieG: 0.8 }, skyGain: [0.40, 0.48, 0.62], exposure: 0.9, envIntensity: 1.0, groundEnv: 0.9,
-           fog: { color: 0xc6d3df, near: 40, far: 420 }, hemi: { sky: 0xd6e4ff, ground: 0x707068, intensity: 0.5 }, ridge: 0x3f5068, ridgeLit: 0x8fa0b4,
-           lamps: 'day', stars: false, pools: 0, grade: { tint: [1, 1, 1], contrast: 1, brightness: 1 } },
+  day:   { pano: 'day', envCube: 'showroom', sun: { az: 250, el: 60, color: 0xf6f8ff, intensity: 3.6 }, sky: { turbidity: 2.4, rayleigh: 2.2, mie: 0.003, mieG: 0.8 }, skyGain: [0.40, 0.48, 0.62], exposure: 0.9, envIntensity: 1.1, groundEnv: 0.9,
+           fog: { color: 0xc6d3df, near: 40, far: 420 }, hemi: { sky: 0xd6e4ff, ground: 0x707068, intensity: 0.45 }, ridge: 0x3f5068, ridgeLit: 0x8fa0b4,
+           lamps: 'off', stars: false, pools: 0, grade: { tint: [1, 1, 1], contrast: 1, brightness: 1 } },
   dawn:  { pano: 'dusk', panoTint: [1.07, 0.97, 0.93], sun: { az: 150, el: 6, color: 0xffc09a, intensity: 2.6 }, sky: { turbidity: 6, rayleigh: 2.8, mie: 0.012, mieG: 0.86 }, skyGain: [0.62, 0.50, 0.56], exposure: 0.95, envIntensity: 1.0, groundEnv: 0.6,
            fog: { color: 0xd8bfb8, near: 18, far: 300 }, hemi: { sky: 0xd9c2d8, ground: 0x6b5040, intensity: 0.35 }, ridge: 0x4a4260, ridgeLit: 0xa08098,
            lamps: 'low', stars: false, pools: 0.25, grade: { tint: [1.04, 0.95, 0.92], contrast: 1.0, brightness: 0.88 } },
@@ -573,7 +625,11 @@ async function applyTime(name) {
   for (const s of [sky, skyEnv]) { const u = s.material.uniforms; u.turbidity.value = t.sky.turbidity; u.rayleigh.value = t.sky.rayleigh; u.mieCoefficient.value = t.sky.mie; u.mieDirectionalG.value = t.sky.mieG; u.sunPosition.value.copy(dir); }
   renderer.toneMappingExposure = t.exposure;
   if (envRT) envRT.dispose();
-  envRT = pmrem.fromScene(envScene, 0.02); scene.environment = envRT.texture;
+  // reflections: an HDR cubemap from the rig's textures.envCubes when the preset names one (e.g. the
+  // head unit's own showroom / outdoor sets), otherwise the procedural sky dome
+  const cubeSpec = t.envCube && T.envCubes && T.envCubes[t.envCube];
+  const cube = cubeSpec ? await loadEnvCube(t.envCube, cubeSpec) : null;
+  envRT = cube ? pmrem.fromCubemap(cube) : pmrem.fromScene(envScene, 0.02); scene.environment = envRT.texture;
   const ei = t.envIntensity == null ? 1 : t.envIntensity;
   for (const m of [paintMat, chromeMat, alloyMat, skidMat, glassMat, lampCoverMat, tyreMat, caliperMat, plasticAoMat, tubMat, plasticMat, fabricMat]) m.envMapIntensity = ei;
   for (const o of lamps) { const L = o.userData.lamp; if (L.unlit) L.unlit.envMapIntensity = ei; if (L.lit) L.lit.envMapIntensity = ei; }
@@ -667,6 +723,11 @@ function groundHomography() {
 function show(layer) {
   bodyGroup.visible = ['body', 'all', 'bg', 'wheelnear', 'wheelfar'].includes(layer) || layer.startsWith('wheel_');
   drive.visible = layer === 'drive' || layer === 'all';
+  // the lamp pools light the road only (bg passes), never the truck's own shell; the drive key only lights the driveline
+  const plate = layer === 'bg' || layer === 'all';
+  for (const sp of headSpots) sp.visible = plate; tailGlow.visible = plate; contact.visible = plate && TIMES[currentTime] && TIMES[currentTime].contactShadow !== false;
+  driveKey.visible = layer === 'drive';
+  if (driveKey.visible) { driveKey.position.copy(camera.position).add(new THREE.Vector3(0, 2.5, 0)); driveKey.target.position.copy(centre); }
   for (const n of wheelNames) wheels[n].layer.visible = layer === 'all' || layer === 'bg' || layer === 'wheel_' + n || layer === 'body';
   sceneGroup.visible = layer === 'bg' || layer === 'all';
   backdrop.visible = !!(backdrop.material.map && backdrop.userData.on && (layer === 'bg' || layer === 'all'));   // three only skips visible === false, so coerce
@@ -790,12 +851,14 @@ window.renderAll = async (opts = {}) => {
       pivotModel: wm.hub.toArray(), pivotWorld: hubW[n].toArray(), spinAxis: 'model +Y (three -Z); positive roll = forward', steerAxis: 'model +Z (three +Y)' };
     meta.files.wheels[n] = baseFrames[n].map((_, p) => `${TAG}_wheel_${n}_${String(p).padStart(2, '0')}.png`);
   }
-  // scene geometry + anchors (v1 formulas, v1 units)
+  // scene geometry + anchors: the driveline callouts come from the aligned chassis itself, the rest from the v1 formulas
   meta.groundH = groundHomography();
   meta.road = Object.assign({ unitsPerM: UPM, ground: g }, ROAD, { centreLine: SCN.centreLine, dashes: SCN.centreLine === 'dashed', railZ: SCN.rail === false ? null : SCN.railZ });
+  meta.contactShadow = TIMES[base].contactShadow !== false;
+  const ca = chassisAnchors();
   meta.anchors = {
-    battery: project(midX + 0.02, ay - 0.02, 0), engine: project(fx - 0.09, ay + 0.12, 0),
-    frontMotor: project(fx + 0.12, ay + 0.06, 0), rearMotor: project(rx - 0.02, ay + 0.03, 0),
+    battery: ca ? project(...ca.battery) : project(midX + 0.02, ay - 0.02, 0), engine: ca ? project(...ca.engine) : project(fx - 0.09, ay + 0.12, 0),
+    frontMotor: ca ? project(...ca.frontMotor) : project(fx + 0.12, ay + 0.06, 0), rearMotor: ca ? project(...ca.rearMotor) : project(rx - 0.02, ay + 0.03, 0),
     nose: project(box3.min.x, ay + 0.1, 0), tail: project(box3.max.x, ay + 0.1, 0),
     roof: project(centre.x, box3.max.y, 0),
     groundFront: project(fx, g, -tr), groundRear: project(rx, g, -tr), groundFrontFar: project(fx, g, tr), groundRearFar: project(rx, g, tr),
@@ -939,7 +1002,8 @@ window.previewXray = (a = az, e = el, d = dist) => { frame(a, e, d); show('all')
 window.previewView = (name) => { frameView(VIEWS[name]); show('body'); setBodyMode('solid'); setWheelMode('solid'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
 window.solid = (on) => { setBodyMode(on ? 'solid' : 'ghost'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
 window.setSpin = setSpin; window.setSteer = setSteer; window.TIMES = TIMES; window.VIEWS = VIEWS; window.scene = scene; window.THREE = THREE; window.rig = rig;
-window.lights = { sun, hemi, headSpots, tailGlow }; window.renderer = renderer; window.camera = camera;
+window.lights = { sun, hemi, headSpots, tailGlow, driveKey }; window.renderer = renderer; window.camera = camera;
+window.chassisAnchors = chassisAnchors; window.envCubeCache = envCubeCache; window.project = project;
 window.info = () => ({ hubs: hubW, wp, bbox: { min: box3.min.toArray(), max: box3.max.toArray() }, centre: centre.toArray(), radius, S, parts: bodyMeshes.length, lamps: lamps.map((o) => [nameOf(o), o.userData.lamp.kind]) });
 // debug looks: 'ao' shows the AO atlases as colour, 'uv' the tyre map on everything, 'clay' flat grey
 window.debug = (mode) => { debugMode = mode || null; setBodyMode('solid'); setWheelMode('solid'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };

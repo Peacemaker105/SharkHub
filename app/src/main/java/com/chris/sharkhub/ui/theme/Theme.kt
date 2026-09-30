@@ -1,6 +1,7 @@
 package com.chris.sharkhub.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -46,6 +47,8 @@ data class ThemeSpec(
     val hot: Color,
     /** Cooling / seat ventilation on the climate screen (hot doubles as heating). */
     val cool: Color = Color(0xFF5AC8FA),
+    /** Healthy / OK — tyre plates and the like. Every theme gets a green that suits it. */
+    val good: Color = Color(0xFF4EDFA0),
 )
 
 object Themes {
@@ -55,7 +58,7 @@ object Themes {
         bg = Color(0xFF040A16), surface = Color(0xFF0A1322), surfaceVariant = Color(0xFF101C31),
         ink = Color(0xFFEAF3FF), dim = Color(0xFF8DA1BF),
         accent = Color(0xFF2EB8FF), onAccent = Color(0xFF00121F),
-        warn = Color(0xFFFFB547), hot = Color(0xFFFF6B5E), cool = Color(0xFF7FE3FF),
+        warn = Color(0xFFFFB547), hot = Color(0xFFFF6B5E), cool = Color(0xFF7FE3FF), good = Color(0xFF4EDFA0),
     )
 
     // --- ORIGINALS (do not delete; these were the shipped defaults) ---
@@ -64,7 +67,7 @@ object Themes {
         bg = Color(0xFF0B0D10), surface = Color(0xFF14171C), surfaceVariant = Color(0xFF1D2128),
         ink = Color(0xFFF2F4F8), dim = Color(0xFF9AA3B2),
         accent = Color(0xFF3DDC97), onAccent = Color(0xFF07120C),
-        warn = Color(0xFFFFB454), hot = Color(0xFFFF5C5C),
+        warn = Color(0xFFFFB454), hot = Color(0xFFFF5C5C), good = Color(0xFF8BE27A),
     )
 
     // --- STARTER EXTRAS (edit / add more freely) ---
@@ -73,21 +76,21 @@ object Themes {
         bg = Color(0xFF0A0E14), surface = Color(0xFF141A24), surfaceVariant = Color(0xFF1C2430),
         ink = Color(0xFFEAF0F8), dim = Color(0xFF93A0B4),
         accent = Color(0xFF4C8DFF), onAccent = Color(0xFF04101F),
-        warn = Color(0xFFFFC65C), hot = Color(0xFFFF6B6B), cool = Color(0xFF62D6FF),
+        warn = Color(0xFFFFC65C), hot = Color(0xFFFF6B6B), cool = Color(0xFF62D6FF), good = Color(0xFF4CD97B),
     )
     val AMBER_HUD = ThemeSpec(
         id = "amber_hud", name = "Amber HUD", dark = true,
         bg = Color(0xFF0C0A07), surface = Color(0xFF17130D), surfaceVariant = Color(0xFF211B12),
         ink = Color(0xFFF6EFE2), dim = Color(0xFFB0A489),
         accent = Color(0xFFFFB43C), onAccent = Color(0xFF1A1300),
-        warn = Color(0xFF6FE0B0), hot = Color(0xFFFF5C5C), cool = Color(0xFF6FD3FF),
+        warn = Color(0xFF6FE0B0), hot = Color(0xFFFF5C5C), cool = Color(0xFF6FD3FF), good = Color(0xFF9BE06A),
     )
     val DAYLIGHT = ThemeSpec(
         id = "daylight", name = "Daylight", dark = false,
         bg = Color(0xFFF3F5F8), surface = Color(0xFFFFFFFF), surfaceVariant = Color(0xFFEAEEF3),
         ink = Color(0xFF12151A), dim = Color(0xFF5A6473),
         accent = Color(0xFF1B9E6B), onAccent = Color(0xFFFFFFFF),
-        warn = Color(0xFFB5730B), hot = Color(0xFFC43D3D), cool = Color(0xFF1E7FD8),
+        warn = Color(0xFFB5730B), hot = Color(0xFFC43D3D), cool = Color(0xFF1E7FD8), good = Color(0xFF2FA84F),
     )
 
     val all: List<ThemeSpec> = listOf(DEEP_SEA, VN_MINT, SLATE_BLUE, AMBER_HUD, DAYLIGHT)
@@ -141,6 +144,12 @@ private fun typographyFor(style: StyleSpec): Typography = AppTypography.copy(
         fontWeight = style.labelWeight, letterSpacing = (1.6f * style.labelTracking).sp),
 )
 
+/**
+ * The theme's healthy / OK green ([ThemeSpec.good]). Material has no green slot, so it rides in the
+ * otherwise unused tertiaryContainer — read it through this so no screen needs a literal.
+ */
+val ColorScheme.good: Color get() = tertiaryContainer
+
 @Composable
 fun SharkHubTheme(spec: ThemeSpec, style: StyleSpec = Styles.GLASS, content: @Composable () -> Unit) {
     val hairline = spec.ink.copy(alpha = if (spec.dark) 0.09f else 0.12f)
@@ -152,6 +161,7 @@ fun SharkHubTheme(spec: ThemeSpec, style: StyleSpec = Styles.GLASS, content: @Co
             primaryContainer = tonal, onPrimaryContainer = spec.ink,
             secondary = spec.warn, onSecondary = spec.onAccent,
             tertiary = spec.cool, onTertiary = spec.onAccent,
+            tertiaryContainer = spec.good, onTertiaryContainer = spec.onAccent,
             error = spec.hot, onError = spec.onAccent,
             background = spec.bg, onBackground = spec.ink,
             surface = spec.surface, onSurface = spec.ink,
@@ -167,6 +177,7 @@ fun SharkHubTheme(spec: ThemeSpec, style: StyleSpec = Styles.GLASS, content: @Co
             primaryContainer = tonal, onPrimaryContainer = spec.ink,
             secondary = spec.warn, onSecondary = spec.onAccent,
             tertiary = spec.cool, onTertiary = spec.onAccent,
+            tertiaryContainer = spec.good, onTertiaryContainer = spec.onAccent,
             error = spec.hot, onError = spec.onAccent,
             background = spec.bg, onBackground = spec.ink,
             surface = spec.surface, onSurface = spec.ink,

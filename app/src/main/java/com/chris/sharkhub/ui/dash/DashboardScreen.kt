@@ -106,9 +106,11 @@ import com.chris.sharkhub.ui.SectionLabel
 import com.chris.sharkhub.ui.StatusChip
 import com.chris.sharkhub.ui.controlShape
 import com.chris.sharkhub.ui.isPortrait
-import com.chris.sharkhub.ui.overview.CarArt
+import androidx.compose.animation.Crossfade
+import com.chris.sharkhub.ui.overview.CarArtState
 import com.chris.sharkhub.ui.overview.CarPhotoScene
 import com.chris.sharkhub.ui.overview.CarScene
+import com.chris.sharkhub.ui.overview.EmptyStage
 import com.chris.sharkhub.ui.overview.SceneState
 import com.chris.sharkhub.ui.overview.TimeOfDay
 import com.chris.sharkhub.ui.overview.rememberCarArt
@@ -154,7 +156,7 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
         onReset = { layout = DashLayout.default(HomePreset.byId(prefs.homeLayout)); DashLayout.reset(prefs) },
         art = art, sceneCard = sceneCard, backdrop = if (backdrop == HomeBackdrop.WAVES || backdropImage != null) backdrop else HomeBackdrop.NONE,
         backdropImage = backdropImage, dock = prefs.homeDock, driverOnRight = prefs.driverOnRight,
-        fuelLog = fuelLog, timeOfDay = timeOfDay,
+        fuelLog = fuelLog, timeOfDay = timeOfDay, sceneMotion = prefs.sceneMotion,
     )
 }
 
@@ -172,8 +174,8 @@ fun DashboardContent(
     onLayout: (DashLayout) -> Unit,
     onReset: () -> Unit,
     initialPage: Int = 0,
-    /** The rendered truck for scene pages; null draws the wireframe. */
-    art: CarArt? = null,
+    /** The rendered truck for scene pages: loading shows an empty stage, missing draws the wireframe. */
+    art: CarArtState = CarArtState.Missing,
     sceneCard: ImageBitmap? = null,
     backdrop: HomeBackdrop = HomeBackdrop.NONE,
     backdropImage: ImageBitmap? = null,
@@ -182,6 +184,8 @@ fun DashboardContent(
     fuelLog: FuelLog? = null,
     /** The light the stage's truck scene is drawn in. */
     timeOfDay: TimeOfDay = TimeOfDay.DAY,
+    /** Whether the stage's scene moves with road speed (Options → Scene motion). */
+    sceneMotion: Boolean = true,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -250,7 +254,7 @@ fun DashboardContent(
                         }
                         val onRemove: (Int) -> Unit = { idx -> updatePage(pageIndex) { pg -> pg.copy(widgets = pg.widgets.filterIndexed { j, _ -> j != idx }) } }
                         when (p.kind) {
-                            PageKind.STAGE -> StagePage(p, scope, art, timeOfDay, editing, onReorder, onRemove,
+                            PageKind.STAGE -> StagePage(p, scope, art, timeOfDay, sceneMotion, editing, onReorder, onRemove,
                                 Modifier.fillMaxSize().padding(end = if (dock) 4.dp else 20.dp, bottom = 4.dp))
                             else -> WidgetGrid(p.widgets, p.kind, scope, editing, onReorder, onRemove,
                                 Modifier.fillMaxSize().padding(start = 20.dp, end = if (dock) 8.dp else 20.dp))
@@ -415,7 +419,7 @@ private fun PageDots(count: Int, current: Int) {
 /** The truck fills the page; clock top-left, readings top-right, the page's widgets as a row of cards. */
 @Composable
 private fun StagePage(
-    page: DashPage, scope: DashScope, art: CarArt?, timeOfDay: TimeOfDay, editing: Boolean,
+    page: DashPage, scope: DashScope, art: CarArtState, timeOfDay: TimeOfDay, sceneMotion: Boolean, editing: Boolean,
     onReorder: (Int, Int) -> Unit, onRemove: (Int) -> Unit, modifier: Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -423,12 +427,18 @@ private fun StagePage(
     val tele = scope.tele
     fun mode(id: String) = VehicleControls.selector(id)?.let { sel -> sel.optionFor(scope.vehicle[sel.id])?.label }
     val modeLabel = listOfNotNull(mode("driveMode"), mode("roadSurface")).joinToString(" · ").ifEmpty { null }
-    val state = SceneState(tele, xray = 0.3f, home = true, modeLabel = modeLabel)
+    val state = SceneState(tele, xray = 0.3f, home = true, modeLabel = modeLabel, vehicle = scope.vehicle)
     // squared left edge: the scene runs to the edge of the screen
     Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
         Box(Modifier.fillMaxSize()) {
-            if (art != null) CarPhotoScene(state, art, Modifier.fillMaxSize(), timeOfDay = timeOfDay)
-            else CarScene(state, Modifier.fillMaxSize().padding(6.dp))
+            // an empty stage while the art decodes (never the wireframe, which would flash), the truck fading in after
+            Crossfade(art, animationSpec = tween(250), label = "stage") { st ->
+                when (st) {
+                    is CarArtState.Ready -> CarPhotoScene(state, st.art, Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion)
+                    CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
+                    CarArtState.Missing -> CarScene(state, Modifier.fillMaxSize().padding(6.dp))
+                }
+            }
             StageClock(scope, Modifier.align(Alignment.TopStart).padding(start = 26.dp, top = 12.dp))
             Row(Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatPill("Battery", tele.socPercent?.let { "${it.toInt()}%" } ?: "—", cs.primary, tele.socPercent?.toFloat()?.div(100f),

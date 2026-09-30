@@ -83,6 +83,17 @@ android {
         // Sideloaded, never on Play — targetSdk is deliberately old (see defaultConfig).
         disable += "ExpiredTargetSdkVersion"
     }
+    androidResources {
+        // The private car art folder carries preview_*.png for humans (5.8 MB); the app never reads them.
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:preview_*"
+    }
+}
+
+// The screenshot tests render the public car art (assets/car) by default, so the committed PNGs never
+// carry the private BYD-model set. `-Psharkhub.snapshotPrivate=true` renders car_private/ instead —
+// for judging it locally; those PNGs must not be committed (copy them to app/src/test/snapshots/private/).
+tasks.withType<Test>().configureEach {
+    systemProperty("sharkhub.snapshotPrivate", (findProperty("sharkhub.snapshotPrivate") as String?) ?: "false")
 }
 
 dependencies {

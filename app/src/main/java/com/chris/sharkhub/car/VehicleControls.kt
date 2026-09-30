@@ -72,8 +72,9 @@ object VehicleControls {
     private const val DP_ON = 2
     private const val DP_OFF = 1
     // BYDAutoLightDevice and BYDAutoSettingDevice: SET_ON=1, SET_OFF=2.
-    private const val LS_ON = 1
-    private const val LS_OFF = 2
+    /** The light / setting devices' switch codes (the scene's lamp overlays read the light ones too). */
+    const val LS_ON = 1
+    const val LS_OFF = 2
 
     val toggles: List<VehicleToggle> = listOf(
         // ---- Driver assistance (dipilot) ----

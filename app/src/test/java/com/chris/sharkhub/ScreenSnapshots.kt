@@ -50,6 +50,7 @@ import com.chris.sharkhub.ui.gauges.GaugeStyle
 import com.chris.sharkhub.ui.gauges.GaugesContent
 import com.chris.sharkhub.ui.gauges.Metric
 import com.chris.sharkhub.ui.overview.CarArt
+import com.chris.sharkhub.ui.overview.CarArtState
 import com.chris.sharkhub.ui.overview.Lens
 import com.chris.sharkhub.ui.overview.OverviewContent
 import com.chris.sharkhub.ui.overview.TimeOfDay
@@ -109,9 +110,19 @@ class ScreenSnapshots {
     )
     /** The engine topping the pack up on the move — every electric-system callout has a value. */
     private val electricTelemetry: Telemetry = gaugeTelemetry.copy(chargePowerKw = 3.2)
+    /** Braking with the left indicator and position lights on — every lamp overlay a set can list gets a state. */
+    private val lampsTelemetry: Telemetry = drivingTelemetry.copy(brakePct = 40.0, turnLeft = true, positionLights = true)
 
-    /** The rendered truck with everything a frame at [time] needs already decoded (the screen loads it asynchronously). */
-    private fun loadArt(time: TimeOfDay = TimeOfDay.DAY): CarArt? = CarArt.load(paparazzi.context)?.warm(paparazzi.context, time)
+    /**
+     * The rendered truck with everything a frame at [time] needs already decoded (the screen loads it
+     * asynchronously). The public set (assets/car) unless `-Psharkhub.snapshotPrivate=true`, so the
+     * committed PNGs never carry the private BYD-model renders in car_private/.
+     */
+    private fun loadArt(time: TimeOfDay = TimeOfDay.DAY): CarArtState {
+        val ctx = paparazzi.context
+        val art = if (System.getProperty("sharkhub.snapshotPrivate") == "true") CarArt.load(ctx) else CarArt.loadSet(ctx, "car", "v1")
+        return CarArtState.of(art?.warm(ctx, time))
+    }
     private val sampleVehicle: Map<String, Int> = mapOf("driveMode" to 1, "roadSurface" to 1, "energyMode" to 3, "hud" to 1, "drl" to 1,
         "socSave" to 2, "socTarget" to 60)
     private val sportVehicle: Map<String, Int> = sampleVehicle + ("driveMode" to 3)
@@ -156,12 +167,11 @@ class ScreenSnapshots {
     @Composable
     private fun overviewContent(
         lens: Lens, tele: Telemetry = sampleTelemetry, att: Attitude = Attitude(4f, 0f), vehicle: Map<String, Int> = sampleVehicle,
-        time: TimeOfDay = TimeOfDay.DAY, rollView: VehicleView = VehicleView.FRONT, inclineRoll: Boolean = false,
+        time: TimeOfDay = TimeOfDay.DAY, art: CarArtState? = null,
     ): Unit {
         // The screen loads the rendered truck asynchronously; a single-frame snapshot needs it up front.
         OverviewContent(rememberNavController(), car, tele, vehicle, connected = true, att = att, heading = 309f,
-            lastResult = null, initialLens = lens, art = remember { loadArt(time) }, rollView = rollView, timeOfDay = time,
-            initialInclineRoll = inclineRoll)
+            lastResult = null, initialLens = lens, art = art ?: remember { loadArt(time) }, timeOfDay = time)
     }
 
     // ---- dashboard (boot screen) ----
@@ -177,12 +187,12 @@ class ScreenSnapshots {
     @Test fun dashboardDaylight() { shot(Themes.DAYLIGHT) { dashboardContent() } }
     @Test fun dashboardMintGlass() { shot(Themes.VN_MINT, Styles.GLASS) { dashboardContent(page = 1) } }
 
-    // ---- vehicle overview: the three lenses ----
+    // ---- vehicle overview: the three lenses (Tyres parked = the still scene; Moving = 80 km/h streaks + blur) ----
     @Test fun overviewTyres() { shot { overviewContent(Lens.TYRES) } }
-    @Test fun overviewIncline() { shot { overviewContent(Lens.INCLINE, drivingTelemetry, Attitude(12.4f, -6.5f), mudVehicle) } }
-    @Test fun overviewInclineRear() {
-        shot { overviewContent(Lens.INCLINE, drivingTelemetry, Attitude(12.4f, -23.5f), mudVehicle, rollView = VehicleView.REAR, inclineRoll = true) }
-    }
+    @Test fun overviewTyresLow() { shot { overviewContent(Lens.TYRES, drivingTelemetry.copy(speedKph = 0.0)) } }
+    @Test fun overviewMoving() { shot { overviewContent(Lens.TYRES, drivingTelemetry.copy(speedKph = 80.0)) } }
+    @Test fun overviewInclineLevel() { shot { overviewContent(Lens.INCLINE, sampleTelemetry, Attitude(0.4f, -0.3f)) } }
+    @Test fun overviewInclineTilted() { shot { overviewContent(Lens.INCLINE, drivingTelemetry, Attitude(12.4f, -23.5f), mudVehicle) } }
     @Test fun overviewElectric() { shot { overviewContent(Lens.ENERGY, electricTelemetry, Attitude(4f, 0f), sportVehicle) } }
     @Test fun overviewElectricParked() { shot { overviewContent(Lens.ENERGY, sampleTelemetry.copy(engineRpm = 0.0, enginePowerKw = 0.0, motorPowerKw = 0.0)) } }
     @Test fun overviewGlass() { shot(style = Styles.GLASS) { overviewContent(Lens.TYRES, drivingTelemetry) } }
@@ -194,6 +204,8 @@ class ScreenSnapshots {
     }
     @Test fun overviewDaylight() { shot(Themes.DAYLIGHT) { overviewContent(Lens.ENERGY) } }
     @Test fun overviewFrost() { shot(style = Styles.FROST) { overviewContent(Lens.ENERGY, drivingTelemetry, Attitude(4f, 0f), sportVehicle) } }
+    /** The stage while the art set is still decoding at start-up: scene, no truck, never the wireframe. */
+    @Test fun overviewLoading() { shot { overviewContent(Lens.TYRES, art = CarArtState.Loading) } }
 
     // ---- vehicle overview: scene lighting (Options → Scene lighting overrides; Day is overviewTyres) ----
     @Test fun overviewDawn() { shot { overviewContent(Lens.TYRES, drivingTelemetry, time = TimeOfDay.DAWN) } }
@@ -205,6 +217,10 @@ class ScreenSnapshots {
                 heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { loadArt(TimeOfDay.NIGHT) }, initialXray = 0.15f,
                 timeOfDay = TimeOfDay.NIGHT)
         }
+    }
+    /** Night with the brake, left indicator, position and fog lamps on — lit only when the set lists lamp overlays (v1 has none). */
+    @Test fun overviewNightLamps() {
+        shot { overviewContent(Lens.TYRES, lampsTelemetry, vehicle = sampleVehicle + ("frontFog" to 1), time = TimeOfDay.NIGHT) }
     }
 
     // ---- gauges ----

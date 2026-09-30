@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.chris.sharkhub.car.Corner
 import com.chris.sharkhub.car.Telemetry
+import com.chris.sharkhub.car.VehicleControls
 import com.chris.sharkhub.sensors.Attitude
 import kotlin.math.PI
 import kotlin.math.abs
@@ -107,7 +108,36 @@ data class SceneState(
     val home: Boolean = false,
     /** "Eco · Normal road" for the home stage's drive callout. */
     val modeLabel: String? = null,
+    /** Raw vehicle-control readbacks (VehicleControls ids → codes), for the lamp overlays. */
+    val vehicle: Map<String, Int> = emptyMap(),
 )
+
+/** Which lamp overlays are lit. Built by [lampsFor] from what the car reports — brake and indicators are never guessed. */
+data class Lamps(
+    val head: Boolean = false, val tail: Boolean = false, val brake: Boolean = false,
+    val turnL: Boolean = false, val turnR: Boolean = false, val fog: Boolean = false,
+    val reverse: Boolean = false, val drl: Boolean = false,
+)
+
+/**
+ * Lamp states from the telemetry and control readbacks. Head lamps have no confirmed getter yet
+ * (the light device's group states need an on-car check — see CarManager), so they follow the time
+ * of day: lit at dusk and night. Tail lamps follow the position-light readback when there is one,
+ * else the same fallback. Indicators are the steady state; the scene blinks them.
+ */
+fun lampsFor(tele: Telemetry, vehicle: Map<String, Int>, time: TimeOfDay): Lamps {
+    val dark = time == TimeOfDay.DUSK || time == TimeOfDay.NIGHT
+    return Lamps(
+        head = dark,
+        tail = tele.positionLights ?: dark,
+        brake = (tele.brakePct ?: 0.0) > 5.0,
+        turnL = tele.turnLeft == true,
+        turnR = tele.turnRight == true,
+        fog = vehicle["frontFog"] == VehicleControls.LS_ON || vehicle["rearFog"] == VehicleControls.LS_ON,
+        reverse = tele.reverse == true,
+        drl = vehicle["drl"] == VehicleControls.LS_ON,
+    )
+}
 
 // ---- Geometry. Design units; the ute is 220 long so 1 unit ≈ 24.8 mm of Shark 6. ----
 // Nose-right oblique projection: the near flank is drawn true, the far flank sits DEPTH up-left,
@@ -179,13 +209,16 @@ private class Palette(cs: ColorScheme) {
                else lerp(cs.onSurface, cs.surface, 0.25f)
 }
 
-internal class CalloutStyle(val label: TextStyle, val value: TextStyle)
+/** Text for the scene's callouts, plus the bracket scales' floating "4° / Pitch angle" number and caption. */
+internal class CalloutStyle(val label: TextStyle, val value: TextStyle, val number: TextStyle, val caption: TextStyle)
 
 @Composable
 internal fun rememberCalloutStyle(): CalloutStyle = remember {
     CalloutStyle(
         label = TextStyle(fontSize = 10.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold),
         value = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold),
+        number = TextStyle(fontSize = 30.sp, fontWeight = FontWeight.Normal, letterSpacing = (-0.5).sp, fontFeatureSettings = "tnum"),
+        caption = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.3.sp),
     )
 }
 
@@ -196,27 +229,51 @@ internal class RoadMotion {
     val travel = mutableFloatStateOf(0f)
     /** Distance covered, in metres (wraps every 100 km) — consumers take their own modulo. */
     val metres = mutableFloatStateOf(0f)
+    /** Sideways drift of the backdrop (px): a slow sway that eases in with speed and out at rest. */
+    val drift = mutableFloatStateOf(0f)
+    internal var sway = 0f
 }
 
 @Composable
-internal fun rememberRoadMotion(speedKph: Float, unitsPerM: Float = UNITS_PER_M, gridUnits: Float = GRID): RoadMotion {
+internal fun rememberRoadMotion(speedKph: Float, unitsPerM: Float = UNITS_PER_M, gridUnits: Float = GRID, driftPx: Float = 0f): RoadMotion {
     val speed by rememberUpdatedState(speedKph)
     val m = remember { RoadMotion() }
     LaunchedEffect(Unit) {
         var last = 0L
         while (true) withFrameNanos { now ->
+            val seconds = (now % 1_000_000_000_000L) / 1e9f
             if (last != 0L) {
                 val dt = ((now - last) / 1e9f).coerceAtMost(0.1f)
                 val mps = speed / 3.6f
                 m.wheel.floatValue = (m.wheel.floatValue + mps / WHEEL_RADIUS_M * dt) % TWO_PI
                 m.travel.floatValue = (m.travel.floatValue + mps * unitsPerM * dt) % gridUnits
                 m.metres.floatValue = (m.metres.floatValue + mps * dt) % 100_000f
+                // full sway from ~40 km/h, settling over a second or two either way; dead still at rest
+                val target = (speed / 40f).coerceIn(0f, 1f)
+                m.sway += (target - m.sway) * (dt / 1.5f).coerceAtMost(1f)
+                m.drift.floatValue = if (m.sway < 0.005f) 0f else m.sway * driftPx * sin(seconds * TWO_PI / 11f)
             }
             last = now
-            m.clock.floatValue = (now % 1_000_000_000_000L) / 1e9f
+            m.clock.floatValue = seconds
         }
     }
     return m
+}
+
+/** The stage before the rendered truck has decoded — its ground and light, no vehicle — so nothing pops or flashes. */
+@Composable
+fun EmptyStage(modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val p = remember(cs) { Palette(cs) }
+    Canvas(modifier) {
+        val s = min(size.width / BOX_W, size.height / BOX_H)
+        val origin = Offset((size.width - BOX_W * s) / 2f + CAR_X * s, (size.height - BOX_H * s) / 2f + CAR_Y * s)
+        withTransform({ translate(origin.x, origin.y); scale(s, s, Offset.Zero) }) {
+            drawGround(p, 0f)
+            drawOval(Brush.radialGradient(listOf(p.accent.copy(alpha = 0.16f), Color.Transparent),
+                center = Offset(PIVOT_X - 12f, GROUND), radius = 130f), topLeft = Offset(0f, GROUND - 7f), size = Size(250f, 14f))
+        }
+    }
 }
 
 /**

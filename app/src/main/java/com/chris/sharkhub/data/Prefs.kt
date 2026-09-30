@@ -88,6 +88,11 @@ class Prefs(ctx: Context) {
         get() = sp.getString("scene_lighting", "auto") ?: "auto"
         set(v) = sp.edit().putString("scene_lighting", v).apply()
 
+    /** The truck scene moves with road speed (wheels, road, streaks, blur, drift); off = a still. */
+    var sceneMotion: Boolean
+        get() = sp.getBoolean("scene_motion", true)
+        set(v) = sp.edit().putBoolean("scene_motion", v).apply()
+
     /**
      * Which side of the screen the driver's climate zone sits on. Until chosen in Options it's
      * guessed from the region: the Shark 6 is sold both right- and left-hand drive.

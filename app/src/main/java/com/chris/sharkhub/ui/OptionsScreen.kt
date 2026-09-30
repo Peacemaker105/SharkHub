@@ -74,6 +74,7 @@ fun OptionsScreen(nav: NavController, themes: ThemeController) {
     var homeBackdrop by remember { mutableStateOf(HomeBackdrop.byId(prefs.homeBackdrop)) }
     var homeDock by remember { mutableStateOf(prefs.homeDock) }
     var sceneLighting by remember { mutableStateOf(prefs.sceneLighting) }
+    var sceneMotion by remember { mutableStateOf(prefs.sceneMotion) }
     val cs = MaterialTheme.colorScheme
 
     Column(Modifier.fillMaxSize()) {
@@ -138,6 +139,16 @@ fun OptionsScreen(nav: NavController, themes: ThemeController) {
                             SegmentedControl(SceneLighting.labels, SceneLighting.ids.indexOf(sceneLighting).coerceAtLeast(0)) { i ->
                                 sceneLighting = SceneLighting.ids[i]
                                 prefs.sceneLighting = sceneLighting
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Scene motion", style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                                Text("The road, wheels and backdrop move with speed; off is a still", style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
+                            }
+                            SegmentedControl(listOf("Off", "On"), if (sceneMotion) 1 else 0) { i ->
+                                sceneMotion = i == 1
+                                prefs.sceneMotion = sceneMotion
                             }
                         }
                     }

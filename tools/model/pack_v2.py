@@ -44,12 +44,15 @@ def save_bg(im, path, fmt, quality):
 
 
 def grey_drive(im):
-    """prep_layers.py's look: bright greyscale, alpha kept."""
-    from PIL import ImageEnhance
+    """prep_layers.py's look, pushed harder: bright greyscale with real contrast and crisp edges so
+    the chassis reads at panel size (the app multiplies it by the theme colour), alpha kept."""
+    from PIL import ImageEnhance, ImageOps
     r, g, b, a = im.split()
     lum = Image.merge("RGB", (r, g, b)).convert("L")
-    lum = ImageEnhance.Brightness(lum).enhance(1.6)
-    lum = ImageEnhance.Contrast(lum).enhance(1.15)
+    lum = ImageOps.autocontrast(lum, cutoff=1)
+    lum = ImageEnhance.Contrast(lum).enhance(1.45)
+    lum = ImageEnhance.Brightness(lum).enhance(1.25)
+    lum = lum.filter(ImageFilter.UnsharpMask(radius=2, percent=120, threshold=2))
     return Image.merge("RGBA", (lum, lum, lum, a))
 
 
@@ -100,7 +103,11 @@ def main():
     ap.add_argument("--accent", default="48c4ff")
     ap.add_argument("--xray", type=float, default=0.0)
     args = ap.parse_args()
-    rd, od, tag = args.render_dir, args.out_dir, args.tag
+    rd, final_od, tag = args.render_dir, os.path.abspath(args.out_dir), args.tag
+    # build in a sibling temp folder and swap it in at the end, so the app's folder is never half-written
+    od = final_od.rstrip("\\/") + "__packing"
+    if os.path.isdir(od):
+        shutil.rmtree(od)
     os.makedirs(od, exist_ok=True)
     meta = json.load(open(os.path.join(rd, f"{tag}_meta.json"), encoding="utf-8"))
     W, H = meta["canvas"]
@@ -255,7 +262,20 @@ def main():
             make_preview(od, meta, tn, accent, args.xray, os.path.join(od, f"preview_{tn}.png"))
         if base in times:
             make_preview(od, meta, base, accent, 0.65, os.path.join(od, f"preview_{base}_xray.png"))
-    return 1 if problems else 0
+    if problems:
+        log("NOT swapped in — fix the problems above; the build is in", od)
+        return 1
+    # ---- swap the finished folder into place (one quick rename, nothing half-written)
+    old = final_od.rstrip("\\/") + "__old"
+    if os.path.isdir(old):
+        shutil.rmtree(old)
+    if os.path.isdir(final_od):
+        os.rename(final_od, old)
+    os.rename(od, final_od)
+    if os.path.isdir(old):
+        shutil.rmtree(old)
+    log("swapped into", final_od)
+    return 0
 
 
 def make_preview(od, meta, tn, accent, xray, out_path, scale=0.5):
@@ -293,9 +313,10 @@ def make_preview(od, meta, tn, accent, xray, out_path, scale=0.5):
     gx = [p[0] for p in g]; gy = [p[1] for p in g]
     cx = (min(gx) + max(gx)) / 2; cy = (min(gy) + max(gy)) / 2 + 10
     rw = (max(gx) - min(gx)) * 0.62; rh = (max(gy) - min(gy)) * 0.9 + 30
-    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).ellipse((cx - rw, cy - rh, cx + rw, cy + rh), fill=(0, 0, 0, 140))
-    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(40)))
+    if not meta.get("contactShadow"):   # v2 plates carry their own baked contact shadow
+        sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(sh).ellipse((cx - rw, cy - rh, cx + rw, cy + rh), fill=(0, 0, 0, 140))
+        canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(40)))
 
     def paste(im, crop):
         canvas.alpha_composite(im, (int(crop["x"]), int(crop["y"])))
@@ -326,6 +347,12 @@ def make_preview(od, meta, tn, accent, xray, out_path, scale=0.5):
             if layer in ("RL", "FL"):
                 r, gg, b, al = im.split(); al = al.point(lambda v: int(v * 0.75)); im = Image.merge("RGBA", (r, gg, b, al))
             paste(im, fr)
+    if xray > 0.3:   # the x-ray preview doubles as the callout check: hubs and anchors marked
+        dr = ImageDraw.Draw(canvas)
+        for n, wv in meta["wheels"].items():
+            x, y = wv["hub"]; dr.ellipse((x - 7, y - 7, x + 7, y + 7), outline=(255, 90, 60), width=3); dr.text((x + 10, y - 8), n, fill=(255, 90, 60))
+        for n, p in meta["anchors"].items():
+            x, y = p; dr.ellipse((x - 5, y - 5, x + 5, y + 5), fill=(255, 220, 80)); dr.text((x + 8, y + 2), n, fill=(255, 220, 80))
     out = canvas.convert("RGB").resize((round(W * scale), round(H * scale)), Image.LANCZOS)
     out.save(out_path, "PNG", optimize=True)
     log("preview", out_path, f"{os.path.getsize(out_path)/1024:.0f} KB")
