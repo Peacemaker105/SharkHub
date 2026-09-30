@@ -74,6 +74,19 @@ In the app (`ui/overview/CarPhotoArt.kt`): body and driveline are multiplied by 
 pivot with pitch, callouts anchor to the metadata, and the **Shell ↔ X-ray slider** blends the
 painted shell over the innards (`Prefs.carXray`). If the assets are missing the Canvas wireframe draws.
 
+## v2: the private set from BYD's own model (2026-10-01)
+The public app keeps the layers above. The private build renders BYD's Shark 6 head-unit model (kept
+outside the repo, see `C:\dev\byd_factory`) through the generic **`tools/model/render_v2.html`**
+pipeline — same camera and meta schema, plus dawn/day/dusk/night plates on BYD's own horizon
+panoramas, elevation views for the inclinometer, lit-lamp overlays and motion-blurred road plates —
+into the gitignored `app/src/main/assets/car_private/` (~24 MB). Everything model-specific sits in a
+rig JSON next to the model; `tools/model/README.md` documents the rig, the one-command re-render
+(`python tools\model\render_v2.py …`, e.g. for a new paint colour) and the traps met on the way.
+Scenery follows Chris's reference (the BYD off-road page): double yellow centre line baked into the
+plate (`road.dashes = false` tells the app not to draw v1's dashes), an Armco rail on the far side,
+the lake reflection of the pano beyond the far verge. The only Meshy asset v2 still uses is the DMO
+chassis, inside the `drive` layer only, cut around the wheel wells and masked to the shell's outline.
+
 ## Inclinometer views: BYD photos (2026-09-29, late)
 Chris judged cel-shaded renders of the Meshy model too rough ("the model isn't nice quality and it
 shows"), so the tilt drawings are real BYD imagery he supplied, in white:

@@ -1,0 +1,966 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shark Hub layer renderer v2</title>
+<style>
+  html, body { margin: 0; background: #0b1118; color: #9fd; font: 13px/1.4 monospace; }
+  #hud { position: fixed; left: 12px; top: 10px; white-space: pre; pointer-events: none; text-shadow: 0 0 4px #000, 0 0 2px #000; }
+  canvas { display: block; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="hud">loading…</div>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+
+// ============================================================================================
+// v2 layer renderer: a multi-part car GLB (parts named, materials named, wheel hubs known) is
+// rendered from ONE fixed camera into transparent layers the app composes:
+//   body           white ghost shell + crease lines (app tints it)
+//   body_solid     the painted shell, per time of day (lamps lit at night)
+//   drive          the rolling chassis (separate GLB), greyed later by pack_v2.py
+//   wheel_XX_NN    each corner at NN spin phases; near-side wheels are cut by the body's depth
+//   <time>_bg      the modelled highway + procedural sky for dawn / day / dusk / night
+//   view_*         side / front / rear elevations for the inclinometer
+// plus <tag>_meta.json (v1 schema + times / views / paint / files). Everything model-specific
+// comes from the rig JSON (?rig=…): model URL, up axis, scale, hubs, part names, textures.
+// URL: ?rig=file.json&paint=hex&w=2400&h=1750&fov=32&edge=45&time=day&auto=1&times=a,b&wheelTimes=night
+// Console: renderAll(opts), preview(az,el,dist,spin), setTime(name), setPaint(hex), solid(bool), debug(mode)
+// ============================================================================================
+const params = new URLSearchParams(location.search);
+const hud = document.getElementById('hud');
+const say = (t) => { hud.textContent = t; console.log(t); };
+const rig = await (await fetch(params.get('rig') || 'rig.json')).json();
+const W = parseInt(params.get('w') || (rig.canvas && rig.canvas[0]) || '2400', 10);
+const H = parseInt(params.get('h') || (rig.canvas && rig.canvas[1]) || '1750', 10);
+const TAG = params.get('tag') || rig.tag || 'v2';
+const MPU = rig.metresPerUnit || 2.88;          // metres per world unit — v1's convention (1 unit = 2.88 m) so the meta stays compatible
+const UPM = 1 / MPU;                             // world units per metre
+const S = (rig.toMetres || 1) / MPU;             // model units → world units
+const VIEW = Object.assign({ az: 235, el: 9, dist: 2.9, fov: 32 }, rig.view || {});
+if (params.has('fov')) VIEW.fov = parseFloat(params.get('fov'));
+const EDGE = parseFloat(params.get('edge') || rig.edge || '45');
+
+// ---------------------------------------------------------------- renderer / scene / camera
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H);
+renderer.setClearColor(0x000000, 0);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.VSMShadowMap;   // blurred (soft) shadows: sun.shadow.radius / blurSamples below
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(VIEW.fov, W / H, 0.01, 4000);
+const pmrem = new THREE.PMREMGenerator(renderer);
+
+// ---------------------------------------------------------------- small helpers
+const dirFrom = (az, el) => { const a = az * Math.PI / 180, e = el * Math.PI / 180; return new THREE.Vector3(Math.cos(e) * Math.sin(a), Math.sin(e), Math.cos(e) * Math.cos(a)); };
+function mulberry32(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function valueNoise1D(seed, n) { const r = mulberry32(seed); const g = Array.from({ length: n + 1 }, () => r()); return (x) => { const i = Math.floor(x) % n, f = x - Math.floor(x), t = f * f * (3 - 2 * f); return g[i] * (1 - t) + g[(i + 1) % (n + 1)] * t; }; }
+function fbm1D(seed, x, octaves = 5) { let a = 0, amp = 0.5, fr = 1, sum = 0; for (let o = 0; o < octaves; o++) { const nz = valueNoise1D(seed + o * 101, 64); a += amp * nz(x * fr); sum += amp; amp *= 0.5; fr *= 2.1; } return a / sum; }
+const noiseCache = {};
+function noise2(seed, x, y) { const key = seed; if (!noiseCache[key]) { const r = mulberry32(seed); noiseCache[key] = Array.from({ length: 64 * 64 }, () => r()); } const g = noiseCache[key]; const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi; const sx = xf * xf * (3 - 2 * xf), sy = yf * yf * (3 - 2 * yf); const at = (i, j) => g[((j & 63) * 64) + (i & 63)]; return (at(xi, yi) * (1 - sx) + at(xi + 1, yi) * sx) * (1 - sy) + (at(xi, yi + 1) * (1 - sx) + at(xi + 1, yi + 1) * sx) * sy; }
+function fbm2(seed, x, y, o = 4) { let a = 0, amp = 0.5, f = 1, s = 0; for (let i = 0; i < o; i++) { a += amp * noise2(seed + i * 7, x * f, y * f); s += amp; amp *= 0.5; f *= 2; } return a / s; }
+const hex = (c) => '#' + new THREE.Color(c).getHexString();
+const mix = (a, b, t) => new THREE.Color(a).lerp(new THREE.Color(b), t);
+
+// ---------------------------------------------------------------- textures (all optional; a missing file just means "unmapped")
+const T = rig.textures || {};
+const texBase = T.base || '';
+const loader = new THREE.TextureLoader();
+async function loadTex(file, { srgb = false, flipY = true, repeat = 0, wrap = false } = {}) {
+  if (!file) return null;
+  const t = await new Promise((res) => loader.load(texBase + file, res, undefined, () => res(null)));
+  if (!t) { console.warn('texture missing:', file); return null; }
+  t.flipY = flipY; t.anisotropy = 8; t.needsUpdate = true;
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  if (repeat || wrap) { t.wrapS = t.wrapT = THREE.RepeatWrapping; if (repeat) t.repeat.set(repeat, repeat); }
+  return t;
+}
+const texFlip = T.flipY !== false;               // the decoded atlases' row order vs the model's UV origin — set in the rig once checked by eye
+const tyreMap = await loadTex(T.tyreMap, { srgb: true, flipY: texFlip });
+const aoPaint = await loadTex(T.ao && T.ao.paint, { flipY: texFlip });
+const aoPlastic = await loadTex(T.ao && T.ao.plastic, { flipY: texFlip });
+const aoTub = await loadTex(T.ao && T.ao.tub, { flipY: texFlip });
+for (const t of [aoPaint, aoPlastic, aoTub]) if (t) t.channel = 0;   // this model has one UV set: AO reads the same 'uv' as the colour map
+function proceduralFlakeNormal(size = 64, repeat = 40, strength = 0.35) {
+  // metallic flake: random near-vertical normals, tiled finely under the clearcoat
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d'); const img = g.createImageData(size, size); const r = mulberry32(7);
+  for (let i = 0; i < size * size; i++) {
+    let x = (r() * 2 - 1) * strength, y = (r() * 2 - 1) * strength, z = 1; const l = Math.hypot(x, y, z); x /= l; y /= l; z /= l;
+    img.data[i * 4] = (x * 0.5 + 0.5) * 255; img.data[i * 4 + 1] = (y * 0.5 + 0.5) * 255; img.data[i * 4 + 2] = (z * 0.5 + 0.5) * 255; img.data[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat, repeat); t.anisotropy = 8; return t;
+}
+const flake = (T.flakeNormal && await loadTex(T.flakeNormal, { repeat: T.flakeRepeat || 40 })) || proceduralFlakeNormal(64, T.flakeRepeat || 40);
+
+// ---------------------------------------------------------------- materials (BYD's own material names on every primitive)
+const DS = THREE.DoubleSide;   // liners and floors are single-sided toward the cabin: cull nothing on the car
+const paintMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.3, roughness: 0.42, clearcoat: 1.0, clearcoatRoughness: 0.06, side: DS,
+  normalMap: flake, normalScale: new THREE.Vector2(0.15, 0.15), aoMap: aoPaint, aoMapIntensity: aoPaint ? 1.0 : 0, envMapIntensity: 1.0 });
+window.setPaint = (h) => { if (h) paintMat.color.set('#' + String(h).replace('#', '')); else if (rig.paint && rig.paint.linear) paintMat.color.setRGB(...rig.paint.linear); else paintMat.color.set(0x1f5fa8); return hex(paintMat.color); };
+window.setPaint(params.get('paint') || (rig.paint && rig.paint.hex));
+const chromeMat = new THREE.MeshStandardMaterial({ color: 0xd9dcdf, metalness: 1.0, roughness: 0.28, side: DS });   // satin: mirror chrome turns into white blobs under an empty sky
+const alloyMat = new THREE.MeshStandardMaterial({ color: 0xc4c8cc, metalness: 0.95, roughness: 0.3, side: DS });
+const skidMat = new THREE.MeshStandardMaterial({ color: 0xb9bcc0, metalness: 0.75, roughness: 0.5, side: DS });     // the bumper skid is silver plastic, not mirror chrome
+const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x0c1014, metalness: 0.0, roughness: 0.04, transparent: true, opacity: 0.6, side: DS, depthWrite: false, envMapIntensity: 1.3 });
+const lampCoverMat = new THREE.MeshPhysicalMaterial({ color: 0x9aa4ac, metalness: 0.0, roughness: 0.03, transparent: true, opacity: 0.28, side: DS, depthWrite: false, envMapIntensity: 1.3 });   // headlamp covers are clear
+const fritMat = new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.35, metalness: 0.1, side: DS });
+const tyreMat = new THREE.MeshStandardMaterial({ color: tyreMap ? 0xffffff : 0x151515, map: tyreMap, roughness: 0.88, metalness: 0.0, side: DS });
+const caliperMat = new THREE.MeshStandardMaterial({ color: tyreMap ? 0xffffff : 0x3a3a3c, map: tyreMap, roughness: 0.6, metalness: 0.2, side: DS });
+const plasticAoMat = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.62, metalness: 0.05, side: DS, aoMap: aoPlastic, aoMapIntensity: aoPlastic ? 1.0 : 0 });
+const tubMat = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.7, metalness: 0.05, side: DS, aoMap: aoTub, aoMapIntensity: aoTub ? 1.0 : 0 });
+const plasticMat = new THREE.MeshStandardMaterial({ color: 0x141517, roughness: 0.3, metalness: 0.15, side: DS });
+const fabricMat = new THREE.MeshStandardMaterial({ color: 0x1e1f23, roughness: 0.92, side: DS });
+const whiteMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.5, side: DS });
+const underMat = new THREE.MeshStandardMaterial({ color: 0x0a0b0c, roughness: 0.95, side: DS });
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.05, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.FrontSide });
+const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+const depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, side: DS });                       // cuts the near wheels behind the arches
+const shadowOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: DS });   // casts the truck's shadow into the bg plate
+const lampGlass = (color, opacity) => new THREE.MeshPhysicalMaterial({ color, roughness: 0.05, metalness: 0, transparent: true, opacity, side: DS, depthWrite: false, clearcoat: 1 });
+const lampLit = (color, emissive, ei) => new THREE.MeshPhysicalMaterial({ color, emissive, emissiveIntensity: ei, roughness: 0.15, metalness: 0, side: DS, clearcoat: 1 });
+
+// ---------------------------------------------------------------- the car
+const gltf = await new Promise((res, rej) => new GLTFLoader().load(rig.model, res, undefined, rej));
+const model = gltf.scene;
+const root = new THREE.Group();
+if (rig.up === 'z') root.rotation.x = -Math.PI / 2; else if (rig.up === 'x') root.rotation.z = Math.PI / 2; else if (rig.up === '-x') root.rotation.z = -Math.PI / 2;
+root.scale.setScalar(S);
+root.add(model);
+scene.add(root);
+const nameOf = (o) => (o.userData && o.userData.node) || (o.parent && o.parent.userData && o.parent.userData.node) || o.name || (o.parent && o.parent.name) || '';
+const stateOf = (o) => ((o.userData && o.userData.state) || (o.parent && o.parent.userData && o.parent.userData.state) || '').toLowerCase();
+const startsAny = (n, list) => (list || []).some((p) => n.startsWith(p));
+const includesAny = (n, list) => (list || []).some((p) => n.includes(p));
+const allNames = (o) => [o.name, o.userData && o.userData.node, o.parent && o.parent.name, o.parent && o.parent.userData && o.parent.userData.node].filter(Boolean);
+const drop = []; model.traverse((o) => {
+  if (!o.isMesh) return;
+  const mat = ((o.material && o.material.name) || '').toLowerCase();
+  if (allNames(o).some((n) => startsAny(n, rig.hide)) || mat.startsWith('lightbeam')) drop.push(o);
+});
+drop.forEach((o) => o.parent.remove(o));
+console.log('dropped', drop.map((o) => o.name).join(', '));
+model.updateMatrixWorld(true);
+
+// wheels: spinning parts re-parented under steer→spin pivots at the hub (model frame), calipers fixed beside them
+const wheelNames = ['FL', 'FR', 'RL', 'RR'];
+const wheels = {};            // n → { layer, steer, spin, hub(model Vector3), meshes: [] }
+const bodyMeshes = [], edgeLines = [], lamps = [];
+const bodyGroup = new THREE.Group(); bodyGroup.name = 'body';
+for (const n of wheelNames) {
+  const spec = rig.wheels[n];
+  const hub = new THREE.Vector3(...spec.hub);
+  const layer = new THREE.Group(); layer.name = 'wheel_' + n;
+  const steer = new THREE.Group(); steer.position.copy(hub); layer.add(steer);
+  const spin = new THREE.Group(); steer.add(spin);
+  const fixed = new THREE.Group(); fixed.position.copy(hub); layer.add(fixed);
+  wheels[n] = { layer, steer, spin, fixed, hub, meshes: [], spec };
+  model.add(layer);
+}
+for (const child of model.children.slice()) {
+  if (child.name.startsWith('wheel_') && wheelNames.some((n) => child === wheels[n].layer)) continue;
+  const meshes = []; child.traverse((o) => { if (o.isMesh) meshes.push(o); });
+  const names = allNames(child).concat(meshes.flatMap(allNames));
+  const nm = child.name || nameOf(child);
+  let owner = null;
+  for (const n of wheelNames) { const p = wheels[n].spec.part; if (names.some((x) => x === p || x.startsWith(p + '_'))) owner = n; }
+  if (owner) {
+    const w = wheels[owner];
+    // BYD's extras.node can carry a "_1"/"_2" suffix (e.g. wheel_01_RF_kq_1), so match the suffix loosely
+    const fixedRe = rig.fixedWheelSuffix ? new RegExp(rig.fixedWheelSuffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(_\\d+)?$') : null;
+    const isFixed = !!(fixedRe && names.some((x) => fixedRe.test(x)));
+    (isFixed ? w.fixed : w.spin).add(child);
+    child.position.sub(w.hub);
+    meshes.forEach((m) => { w.meshes.push(m); m.userData.part = nm; m.userData.fixed = isFixed; });
+  } else {
+    bodyGroup.add(child);
+    meshes.forEach((m) => { bodyMeshes.push(m); m.userData.part = nm; });
+  }
+}
+model.add(bodyGroup);
+// optional flat underbody plates (model frame) to stop see-through where BYD's floor is single-sided or missing
+for (const u of rig.underbody || []) {
+  const g = new THREE.PlaneGeometry(u.x1 - u.x0, u.y1 - u.y0);
+  const m = new THREE.Mesh(g, underMat); m.position.set((u.x0 + u.x1) / 2, (u.y0 + u.y1) / 2, u.z); m.userData.part = 'underbody'; m.userData.ghostHide = true;
+  bodyGroup.add(m); bodyMeshes.push(m);
+}
+
+// materials by BYD material name (+ node state for the lamps), lamp lit/unlit pairs kept per mesh
+const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.18, 'rgba(255,255,255,0.75)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); return new THREE.CanvasTexture(c); })();
+const glows = new THREE.Group(); glows.name = 'glows'; bodyGroup.add(glows);
+function addGlow(mesh, color, size, opacity, kind) {
+  const bb = new THREE.Box3().setFromObject(mesh); const c = bb.getCenter(new THREE.Vector3());
+  bodyGroup.worldToLocal(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity, depthTest: false, depthWrite: false, fog: false }));
+  s.position.copy(c); s.scale.set(size, size, 1); s.renderOrder = 20; s.userData.kind = kind; s.visible = false; glows.add(s); return s;
+}
+function lampFor(o) {
+  const st = stateOf(o), nm = nameOf(o);
+  const bb = new THREE.Box3().setFromObject(o); const c = bb.getCenter(new THREE.Vector3()); model.worldToLocal(c);
+  const front = c.x < 0;   // nose at −X in this model
+  if (st.includes('lightposition') || st.includes('lamps_n20') || st.includes('lamps_n26')) {
+    const brake = st.includes('lamps_n2');
+    return { kind: brake ? 'brake' : 'tail', side: c.y < 0 ? 'L' : 'R', unlit: lampGlass(0x4a0806, 0.92), lit: lampLit(0xff2418, 0xff1a0c, brake ? 1.4 : 3.0), glow: brake ? null : [0xff3020, 0.45, 0.6] };
+  }
+  if (st.includes('lightday')) return { kind: 'drl', side: c.y < 0 ? 'L' : 'R', unlit: new THREE.MeshStandardMaterial({ color: 0xdfe4ea, roughness: 0.4, side: DS }), lit: lampLit(0xffffff, 0xf0f6ff, 5.0), glow: [0xeaf3ff, 0.35, 0.55] };
+  if (st.includes('lightturn')) return { kind: 'turn', side: c.y < 0 ? 'L' : 'R', unlit: lampGlass(0xc8a060, 0.8), lit: lampLit(0xffb030, 0xffa020, 5.0), glow: [0xffb040, 0.4, 0.6] };
+  if (st.includes('lightwhite') && front) return { kind: 'head', side: c.y < 0 ? 'L' : 'R', unlit: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.9, roughness: 0.25, side: DS }), lit: lampLit(0xffffff, 0xfff4e4, 7.0), glow: [0xfff2dc, 0.6, 0.7] };
+  if (st.includes('lightwhite')) return { kind: c.x > 2.4 ? 'reverse' : 'bed', side: c.y < 0 ? 'L' : 'R', unlit: lampGlass(0xd8dde2, 0.7), lit: lampLit(0xffffff, 0xfff6ea, 5.0), glow: [0xfff6ea, 0.3, 0.5] };
+  if (st.includes('lightfog')) return { kind: 'fog', side: c.y < 0 ? 'L' : 'R', front, unlit: lampGlass(front ? 0xd0d4da : 0x6a0a08, 0.75), lit: lampLit(front ? 0xfff6e0 : 0xff2418, front ? 0xffefd0 : 0xff1a0c, 4.0), glow: [front ? 0xfff0d0 : 0xff3020, 0.35, 0.5] };
+  return { kind: 'lens', unlit: lampGlass(0x1a1e24, 0.5), lit: null, glow: null };
+}
+function materialFor(o) {
+  const m = ((o.material && o.material.name) || '').toLowerCase(); const nm = nameOf(o); const st = stateOf(o);
+  // a Kanzi lamp state manager on the node wins over the material name (BYD tags projector lenses plasticBlack_ao, DRL strips chrome)
+  if (m === 'glasslight' || (st && !st.includes('glassline'))) {
+    const L = lampFor(o); o.userData.lamp = L;
+    if (L.glow) L.sprites = [addGlow(o, L.glow[0], L.glow[1] * 0.9, L.glow[2], L.kind), addGlow(o, L.glow[0], L.glow[1] * 1.8, L.glow[2] * 0.25, L.kind)];
+    lamps.push(o);
+    return L.unlit;
+  }
+  if (m === 'paint') return paintMat;
+  if (m === 'chrome') return nm.toLowerCase().includes('jinshu') ? alloyMat : includesAny(nm, rig.skidParts) ? skidMat : chromeMat;
+  if (m === 'window') return includesAny(nm, rig.lampCoverParts) ? lampCoverMat : glassMat;
+  if (m === 'glasslinemeterial') return fritMat;
+  if (m === 'tirepa') return o.userData.fixed ? caliperMat : tyreMat;
+  if (m === 'plasticblack_ao') return includesAny(nm, rig.tubParts) ? tubMat : plasticAoMat;
+  if (m === 'plasticblack') return plasticMat;
+  if (m.startsWith('interior')) return fabricMat;
+  if (m === 'texturedmaterial') return whiteMat;
+  return plasticAoMat;
+}
+for (const o of bodyMeshes.concat(...wheelNames.map((n) => wheels[n].meshes))) {
+  if (o.userData.part === 'underbody') { o.userData.solid = underMat; continue; }
+  o.userData.solid = materialFor(o);
+  o.material = o.userData.solid;
+  o.castShadow = true; o.receiveShadow = true;
+  if (bodyMeshes.includes(o) && (startsAny(o.userData.part, rig.ghostHide) || ((o.material.name || '').toLowerCase().startsWith('interior')))) o.userData.ghostHide = true;
+  if (bodyMeshes.includes(o)) {
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, EDGE), edgeMat); e.visible = false; o.add(e); edgeLines.push(e);
+  }
+}
+let lampsLit = 'day';   // 'off' | 'day' (DRL only) | 'low' (DRL + heads + tails) | 'night' (+ glow sprites)
+function setLamps(mode) {
+  lampsLit = mode;
+  for (const o of lamps) {
+    const L = o.userData.lamp; if (!L.lit) continue;
+    // driving lights: DRLs always, low beams + tail/position after dark; brake, turn, fog, reverse and bed lamps only in their own overlay layers
+    const driving = L.kind === 'drl' || L.kind === 'head' || L.kind === 'tail';
+    const on = driving && mode !== 'off' && (L.kind === 'drl' || mode !== 'day');
+    o.userData.solid = on ? L.lit : L.unlit;
+    if (o.material !== ghostMat && o.material !== depthOnly && o.material !== shadowOnly) o.material = o.userData.solid;
+    if (L.sprites) L.sprites.forEach((s) => { s.userData.on = on && mode === 'night'; });
+  }
+}
+let debugMode = null;   // 'ao' | 'uv' | 'clay' | null — swaps the solid look for a diagnostic one
+function solidMat(o) {
+  const sm = o.userData.solid;
+  if (!debugMode) return sm;
+  if (!o.userData.dbg || o.userData.dbg.mode !== debugMode) {
+    const mat = debugMode === 'ao' ? new THREE.MeshBasicMaterial({ map: sm.aoMap || null, color: sm.aoMap ? 0xffffff : 0xff00ff, side: DS })
+      : debugMode === 'uv' ? new THREE.MeshBasicMaterial({ map: tyreMap, side: DS })
+      : new THREE.MeshStandardMaterial({ color: 0x888888, side: DS });
+    o.userData.dbg = { mode: debugMode, mat };
+  }
+  return o.userData.dbg.mat;
+}
+function setBodyMode(mode) {   // 'solid' | 'ghost' | 'depth' | 'shadow'
+  for (const o of bodyMeshes) {
+    o.material = mode === 'solid' ? solidMat(o) : mode === 'ghost' ? ghostMat : mode === 'depth' ? depthOnly : shadowOnly;
+    o.visible = !(mode === 'ghost' && o.userData.ghostHide);
+  }
+  for (const e of edgeLines) e.visible = mode === 'ghost';
+  glows.children.forEach((s) => { s.visible = mode === 'solid' && !!s.userData.on; });
+}
+function setWheelMode(mode) { for (const n of wheelNames) for (const o of wheels[n].meshes) o.material = mode === 'solid' ? solidMat(o) : mode === 'depth' ? depthOnly : shadowOnly; }
+// spin: the axle is the model's Y; a positive roll toward the nose (−X) is a negative rotation about it (see README)
+function setSpin(rad) { for (const n of wheelNames) wheels[n].spin.rotation.y = -rad; }
+function setSteer(rad) { for (const n of ['FL', 'FR']) wheels[n].steer.rotation.z = rad; }
+
+// world-space hub table in v1 units (three frame: nose −X, up +Y, left +Z)
+scene.updateMatrixWorld(true);
+/** Union of the world-space boxes of every mesh under obj (sprites and helpers ignored). */
+function meshBox(obj) { const b = new THREE.Box3(), t = new THREE.Box3(); obj.traverse((o) => { if (!o.isMesh || !o.visible) return; if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); t.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); b.union(t); }); return b; }
+const hubW = {}; for (const n of wheelNames) hubW[n] = wheels[n].steer.getWorldPosition(new THREE.Vector3());
+const tyreBox = new THREE.Box3(); for (const n of wheelNames) tyreBox.union(meshBox(wheels[n].layer));
+const wp = { frontX: (hubW.FL.x + hubW.FR.x) / 2, rearX: (hubW.RL.x + hubW.RR.x) / 2, axleY: (hubW.FL.y + hubW.FR.y + hubW.RL.y + hubW.RR.y) / 4,
+  track: (Math.abs(hubW.FL.z) + Math.abs(hubW.FR.z)) / 2, ground: tyreBox.min.y, radius: (rig.tyreRadius || 0.368) * S };
+const ay = wp.axleY, fx = wp.frontX, rx = wp.rearX, tr = wp.track, g = wp.ground, midX = (fx + rx) / 2, wb = rx - fx;
+const nearSide = (n) => hubW[n].z < 0;   // the camera sits at −Z (the truck's right / driver side)
+
+// ---------------------------------------------------------------- driveline: the rolling-chassis GLB aligned by wheelbase + front hub + ground
+let drive = new THREE.Group();
+if (rig.chassis && rig.chassis.model) {
+  const cp = await (await fetch(rig.chassis.params)).json();
+  const cg = (await new Promise((res, rej) => new GLTFLoader().load(rig.chassis.model, res, undefined, rej))).scene;
+  cg.traverse((o) => { if (o.name && o.name.startsWith('wheel_')) o.visible = false; if (o.isMesh) { o.material.side = DS; o.castShadow = false; } });
+  // The Meshy chassis keeps most of its own AT tyres inside the "body" mesh (split.js only took a thin
+  // cylinder), and they sit exactly where the real wheels go. Drop every triangle inside a generous
+  // cylinder around each of its axles so the drive layer is chassis only.
+  const cutR = rig.chassis.wheelCutRadius || cp.radius * 2.3, zIn = (rig.chassis.wheelCutInner != null ? rig.chassis.wheelCutInner : cp.zInner * 1.15), zOut = cp.zOuter + 0.2;
+  cg.traverse((o) => {
+    if (!o.isMesh || !o.visible || !o.geometry.index) return;
+    const P = o.geometry.attributes.position, I = o.geometry.index.array, keep = [];
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t], b = I[t + 1], c = I[t + 2];
+      const x = (P.getX(a) + P.getX(b) + P.getX(c)) / 3, y = (P.getY(a) + P.getY(b) + P.getY(c)) / 3, z = (P.getZ(a) + P.getZ(b) + P.getZ(c)) / 3;
+      let inWell = false;
+      if (Math.abs(z) >= zIn && Math.abs(z) <= zOut) for (const ax of [cp.frontX, cp.rearX]) { const dx = x - ax, dy = y - cp.axleY; if (dx * dx + dy * dy < cutR * cutR) inWell = true; }
+      if (!inWell) keep.push(a, b, c);
+    }
+    console.log('chassis', o.name, 'tris', I.length / 3, '→', keep.length / 3);
+    o.geometry.setIndex(keep.length > 65535 ? new THREE.Uint32BufferAttribute(keep, 1) : new THREE.Uint16BufferAttribute(keep, 1));
+  });
+  const flip = rig.chassis.flip !== false;
+  const sc = wb / (cp.rearX - cp.frontX);
+  const cFront = flip ? -cp.rearX : cp.frontX;
+  cg.rotation.y = flip ? Math.PI : 0;
+  drive.add(cg);
+  drive.scale.setScalar(sc);
+  drive.position.set(fx - cFront * sc, g - cp.ground * sc, 0);
+  say('chassis: scale ' + sc.toFixed(4) + ' flip ' + flip);
+}
+scene.add(drive);
+
+// ---------------------------------------------------------------- lights, sky, environment
+const sun = new THREE.DirectionalLight(0xffffff, 3);
+sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -3.2; sun.shadow.camera.right = sun.shadow.camera.top = 3.2; sun.shadow.camera.near = 1; sun.shadow.camera.far = 120;
+sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.02; sun.shadow.radius = 6; sun.shadow.blurSamples = 16;
+scene.add(sun); scene.add(sun.target);
+const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x5a4a3a, 0.3); scene.add(hemi);
+const sky = new Sky(); sky.scale.setScalar(3000); scene.add(sky);
+// the visible dome gets a gain so a bright Preetham horizon doesn't clip to white (per time of day)
+sky.material = sky.material.clone();
+sky.material.uniforms.skyGain = { value: new THREE.Vector3(1, 1, 1) };
+sky.material.fragmentShader = 'uniform vec3 skyGain;\n' + sky.material.fragmentShader.replace('gl_FragColor = vec4( retColor, 1.0 );', 'gl_FragColor = vec4( retColor * skyGain, 1.0 );');
+sky.material.needsUpdate = true;
+// the environment map is the same sky WITHOUT its sun disc: the Preetham sun is thousands of times
+// brighter than the dome and, once pre-filtered into the rough mips, it puts a milky sheen on every
+// rough surface (tyres came out lavender). The sun's own light comes from the DirectionalLight.
+const skyEnv = new Sky(); skyEnv.scale.setScalar(3000);
+skyEnv.material = skyEnv.material.clone();
+skyEnv.material.fragmentShader = skyEnv.material.fragmentShader.replace('vSunE * 19000.0 * Fex', 'vSunE * 0.0 * Fex');
+skyEnv.material.needsUpdate = true;
+const envScene = new THREE.Scene(); envScene.add(skyEnv);
+let envRT = null;
+scene.fog = new THREE.Fog(0xc9d6e2, 30, 400);
+// head lamps light the road at night (bg pass only matters, harmless otherwise). Aimed short: the
+// frame only shows the first few metres of road ahead of the bumper, so that is where the pool must be.
+const headSpots = [];
+for (const s of [-1, 1]) {
+  const sp = new THREE.SpotLight(0xfff1dc, 0, 60, 0.85, 1.0, 1.4);
+  sp.position.set(fx - 0.28, ay + 0.28, s * tr * 0.82);
+  sp.target.position.set(fx - 1.6, g, s * tr * 1.0); scene.add(sp); scene.add(sp.target); headSpots.push(sp);
+}
+const tailGlow = new THREE.PointLight(0xff2a1a, 0, 2.5, 2); tailGlow.position.set(rx + 0.62, ay + 0.28, 0); scene.add(tailGlow);   // just behind the tailgate
+
+// ---------------------------------------------------------------- the modelled scene: two-lane highway, verges, plain, ranges, stars
+// Same camera as the truck. The truck sits in the LEFT lane (Australia): its centreline is z = 0, the
+// road's centre line is on its right (−Z, the camera side). Geometry is identical to v1 so the app's
+// own centre-line dashes and guide posts (drawn through groundH) still land on the seal.
+const ROAD = {
+  laneW: 3.5 * UPM, centerZ: -1.75 * UPM,
+  edgeLeftZ: (1.75 + 0.15) * UPM, edgeRightZ: -(1.75 * 3 + 0.15) * UPM,
+  sealedLeftZ: (1.75 + 0.9) * UPM, sealedRightZ: -(1.75 * 3 + 0.9) * UPM,
+  dashLenU: 3 * UPM, dashPeriodU: 12 * UPM, lineWU: 0.1 * UPM,
+  postSpacingU: 100 * UPM, postLeftZ: (1.75 + 1.6) * UPM, postRightZ: -(1.75 * 3 + 1.6) * UPM, postHeightU: 1.2 * UPM,
+};
+const sceneGroup = new THREE.Group();
+function canvasTexture(w, h, paint, { srgb = true, repeat = null } = {}) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); paint(g, w, h);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 16; if (repeat) t.repeat.set(...repeat); return t;
+}
+function grain(g, w, h, base, spread, seed = 1) {
+  const img = g.createImageData(w, h); const r = mulberry32(seed);
+  for (let i = 0; i < w * h; i++) { const n = (r() - 0.5) * spread, n2 = (r() - 0.5) * spread * 0.4; img.data[i * 4] = base[0] + n + n2; img.data[i * 4 + 1] = base[1] + n + n2 * 0.6; img.data[i * 4 + 2] = base[2] + n; img.data[i * 4 + 3] = 255; }
+  g.putImageData(img, 0, 0);
+}
+const roadW = ROAD.sealedLeftZ - ROAD.sealedRightZ;
+const groundMats = {};
+// Scenery after Chris's reference (the head unit's own off-road screen): a mountain-valley highway,
+// double yellow centre line, Armco rail on the far side, then a pale lake / mist band under hazy
+// blue ranges. The centre line is solid, so it is baked here (the app's dashes are for v1 roads).
+const SCN = Object.assign({ railZ: ROAD.sealedLeftZ + 0.55 * UPM, lakeZ: ROAD.sealedLeftZ + 3.4 * UPM, centreLine: 'double-yellow' }, rig.scenery || {});
+if (params.get('scene') !== '0') {
+  const gy = g - 0.002;
+  // near-side ground (camera side): muted dry grass and gravel with low grey-green scrub (tile ≈ 25 m, 41 px per metre)
+  const earth = canvasTexture(1024, 1024, (gc, w, h) => {
+    grain(gc, w, h, [108, 100, 84], 24, 3);
+    const r = mulberry32(11);
+    for (let i = 0; i < 160; i++) { const rr = 30 + r() * 90; gc.fillStyle = `rgba(${96 + r() * 30 | 0},${92 + r() * 22 | 0},${72 + r() * 16 | 0},0.18)`; gc.beginPath(); gc.ellipse(r() * w, r() * h, rr * 1.6, rr, r() * 3, 0, Math.PI * 2); gc.fill(); }
+    for (let i = 0; i < 1100; i++) {
+      const rr = 6 + r() * 22, k = r();
+      gc.fillStyle = `rgba(${60 + k * 30 | 0},${68 + k * 28 | 0},${50 + k * 20 | 0},${0.4 + r() * 0.4})`;
+      gc.beginPath(); gc.ellipse(r() * w, r() * h, rr * (1.2 + r() * 0.8), rr, r() * 3, 0, Math.PI * 2); gc.fill();
+      gc.fillStyle = `rgba(${40 + k * 18 | 0},${46 + k * 16 | 0},${32 + k * 12 | 0},0.4)`;
+      gc.beginPath(); gc.ellipse(r() * w, r() * h, rr * 0.5, rr * 0.35, r() * 3, 0, Math.PI * 2); gc.fill();
+    }
+    for (let i = 0; i < 4000; i++) { gc.fillStyle = `rgba(${130 + r() * 40 | 0},${120 + r() * 34 | 0},${96 + r() * 28 | 0},${0.25 + r() * 0.3})`; gc.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 2); }
+  }, { repeat: [160, 160] });
+  groundMats.plain = new THREE.MeshStandardMaterial({ map: earth, roughness: 1, metalness: 0 });
+  // near side (camera side, −Z): scrub out to the horizon (fully fogged long before its edge)
+  const nearEdge = ROAD.sealedRightZ - 1.2 * UPM;
+  const plain = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000), groundMats.plain);
+  plain.rotation.x = -Math.PI / 2; plain.position.set(0, gy - 0.004, nearEdge - 1000); plain.receiveShadow = true; sceneGroup.add(plain);
+  // far side (+Z): a grassy verge strip past the gravel, then still water out to the horizon (the pano's own mist band carries on above it)
+  const verge = new THREE.Mesh(new THREE.PlaneGeometry(4000, SCN.lakeZ - (ROAD.sealedLeftZ + 1.2 * UPM)), groundMats.plain);
+  verge.rotation.x = -Math.PI / 2; verge.position.set(0, gy - 0.003, (SCN.lakeZ + ROAD.sealedLeftZ + 1.2 * UPM) / 2); verge.receiveShadow = true; sceneGroup.add(verge);
+  // beyond the verge: nothing — the backdrop strip's own water (the mountains' reflection below its
+  // horizon line) shows through, which is exactly how the head unit stages its car. A flat plane
+  // is available for rigs without a backdrop (scenery.lake = "plane").
+  if (SCN.lake === 'plane') {
+    groundMats.lake = new THREE.MeshStandardMaterial({ color: 0x6f8698, roughness: 0.35, metalness: 0.0, envMapIntensity: 0.7 });
+    const lake = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000), groundMats.lake);
+    lake.rotation.x = -Math.PI / 2; lake.position.set(0, gy - 0.05, SCN.lakeZ + 1000); lake.receiveShadow = false; sceneGroup.add(lake);
+  }
+  // sealed road: texture V runs across the road (sealedRight → sealedLeft), U along it; lines painted, wheel tracks polished
+  const road = canvasTexture(2048, 512, (gc, w, h) => {
+    grain(gc, w, h, [60, 61, 64], 22, 5);
+    const pxPerU = h / roadW; const r = mulberry32(17);
+    for (let i = 0; i < 6000; i++) { gc.fillStyle = `rgba(${30 + r() * 30 | 0},${30 + r() * 30 | 0},${32 + r() * 30 | 0},${0.3 + r() * 0.4})`; gc.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 2); }
+    // polished wheel tracks in both lanes (lighter, smoother): lane centres at z = 0 (ours) and −laneW
+    for (const zc of [0, -ROAD.laneW]) {
+      for (const off of [-0.8 * UPM, 0.8 * UPM]) {
+        const v = (zc + off - ROAD.sealedRightZ) * pxPerU; const grd = gc.createLinearGradient(0, h - v - 18, 0, h - v + 18);
+        grd.addColorStop(0, 'rgba(90,90,92,0)'); grd.addColorStop(0.5, 'rgba(90,90,92,0.35)'); grd.addColorStop(1, 'rgba(90,90,92,0)');
+        gc.fillStyle = grd; gc.fillRect(0, h - v - 18, w, 36);
+      }
+    }
+    const line = (z, wU, style) => { const v = (z - ROAD.sealedRightZ) * pxPerU; gc.fillStyle = style; gc.fillRect(0, h - v - wU * pxPerU / 2, w, Math.max(2, wU * pxPerU)); };
+    for (const z of [ROAD.edgeLeftZ, ROAD.edgeRightZ]) line(z, ROAD.lineWU, 'rgba(232,232,226,0.9)');
+    if (SCN.centreLine === 'double-yellow') { line(ROAD.centerZ + 0.1 * UPM, ROAD.lineWU, 'rgba(226,186,52,0.92)'); line(ROAD.centerZ - 0.1 * UPM, ROAD.lineWU, 'rgba(226,186,52,0.92)'); }
+    else if (SCN.centreLine === 'single-yellow') line(ROAD.centerZ, ROAD.lineWU, 'rgba(226,186,52,0.92)');
+    for (let i = 0; i < 10; i++) { gc.strokeStyle = `rgba(24,24,26,${0.18 + r() * 0.2})`; gc.lineWidth = 1; gc.beginPath(); let x = r() * w, y = r() * h; gc.moveTo(x, y); for (let k = 0; k < 5; k++) { x += (r() - 0.5) * 30; y += (r() - 0.5) * 30; gc.lineTo(x, y); } gc.stroke(); }
+  }, { repeat: [300, 1] });
+  groundMats.road = new THREE.MeshStandardMaterial({ map: road, roughness: 0.9, metalness: 0 });
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(1400, roadW), groundMats.road);
+  strip.rotation.x = -Math.PI / 2; strip.position.set(0, gy, (ROAD.sealedLeftZ + ROAD.sealedRightZ) / 2); strip.receiveShadow = true; sceneGroup.add(strip);
+  // gravel shoulders either side of the seal
+  const gravel = canvasTexture(512, 256, (gc, w, h) => { grain(gc, w, h, [138, 128, 112], 40, 9); const r = mulberry32(21); for (let i = 0; i < 1500; i++) { gc.fillStyle = `rgba(${104 + r() * 70 | 0},${98 + r() * 60 | 0},${84 + r() * 50 | 0},0.7)`; gc.fillRect(r() * w, r() * h, 1 + r() * 2, 1 + r() * 2); } }, { repeat: [300, 2] });
+  groundMats.gravel = new THREE.MeshStandardMaterial({ map: gravel, roughness: 1 });
+  for (const [z0, z1] of [[ROAD.sealedLeftZ, ROAD.sealedLeftZ + 1.2 * UPM], [ROAD.sealedRightZ - 1.2 * UPM, ROAD.sealedRightZ]]) {
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(1400, z1 - z0), groundMats.gravel);
+    sh.rotation.x = -Math.PI / 2; sh.position.set(0, gy - 0.001, (z0 + z1) / 2); sh.receiveShadow = true; sceneGroup.add(sh);
+  }
+  // Armco guardrail along the far edge: W-beam extruded along the road on posts every 4 m (instanced)
+  if (SCN.rail !== false) {
+    const steel = new THREE.MeshStandardMaterial({ color: 0x74787c, metalness: 0.7, roughness: 0.55, side: DS });   // weathered galvanised
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x565a5e, metalness: 0.6, roughness: 0.65 });
+    const m = UPM;   // metres → units
+    const prof = new THREE.Shape();   // W-beam cross-section in (z, y): two lips out, valley in, 0.31 m tall, ~0.08 m deep
+    const pts = [[0, 0], [0.08, 0.035], [0.08, 0.10], [0, 0.135], [0, 0.175], [0.08, 0.21], [0.08, 0.275], [0, 0.31], [-0.012, 0.31], [-0.012, 0]];
+    prof.moveTo(pts[0][0] * m, pts[0][1] * m); for (const p of pts.slice(1)) prof.lineTo(p[0] * m, p[1] * m); prof.closePath();
+    const beamGeo = new THREE.ExtrudeGeometry(prof, { depth: 1400, bevelEnabled: false });
+    beamGeo.rotateY(-Math.PI / 2);   // extrude along −X → the road direction
+    const beam = new THREE.Mesh(beamGeo, steel);
+    beam.position.set(700, gy + 0.45 * m, SCN.railZ); beam.castShadow = true; beam.receiveShadow = true; sceneGroup.add(beam);
+    const nPosts = Math.floor(1400 / (4 * m));
+    const posts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.1 * m, 0.72 * m, 0.14 * m), postMat, nPosts);
+    const mat4 = new THREE.Matrix4();
+    for (let i = 0; i < nPosts; i++) { mat4.makeTranslation(-700 + i * 4 * m + 1.3, gy + 0.36 * m, SCN.railZ - 0.06 * m); posts.setMatrixAt(i, mat4); }
+    posts.castShadow = true; posts.receiveShadow = true; sceneGroup.add(posts);
+  }
+  scene.add(sceneGroup);
+}
+// distant ranges: three hazed ridge lines on a far billboard (same seed every time of day, so only the colours change)
+const ridge = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, fog: false, depthWrite: false }));
+ridge.visible = false; sceneGroup.add(ridge); sceneGroup.userData.ridge = ridge;
+function paintRidges(t) {
+  const w = 8192, h = 512, base = 0.62;   // ridge bases sit at 62 % of the billboard height; below is a haze band that meets the fogged plain
+  const tex = canvasTexture(w, h, (gc) => {
+    gc.clearRect(0, 0, w, h);
+    const hz = scene.fog.color.clone();
+    // far → near: hazier and lower far away; each ridge is a sum of a slow "range" envelope and faster peaks
+    const layers = [{ seed: 31, amp: 0.34, haze: 0.62, k: 0.8 }, { seed: 47, amp: 0.26, haze: 0.42, k: 1.5 }, { seed: 59, amp: 0.17, haze: 0.22, k: 2.6 }];
+    layers.forEach((L, i) => {
+      const col = mix(t.ridge, hz, L.haze); const colTop = mix(col, t.ridgeLit || t.ridge, 0.35);
+      gc.beginPath(); gc.moveTo(0, h);
+      for (let x = 0; x <= w; x += 4) {
+        const u = x / w;
+        const range = 0.25 + 0.75 * fbm1D(L.seed, u * 3 * L.k, 3);                                  // slow envelope: how tall the range is here
+        const peaks = Math.pow(fbm1D(L.seed + 500, u * 26 * L.k, 5), 1.4);                           // its peaks (gentle: these are distant hills)
+        const y = h * base - Math.min(1.0, range * (0.25 + peaks * 1.5)) * h * L.amp;
+        gc.lineTo(x, Math.min(h * base, y));
+      }
+      gc.lineTo(w, h); gc.closePath();
+      const grd = gc.createLinearGradient(0, h * (base - L.amp), 0, h * base); grd.addColorStop(0, hex(colTop)); grd.addColorStop(1, hex(mix(col, hz, 0.5)));
+      gc.fillStyle = grd; gc.fill();
+    });
+    // haze band down to the bottom edge (the fogged plain meets it)
+    const bg = gc.createLinearGradient(0, h * base - 6, 0, h); bg.addColorStop(0, 'rgba(0,0,0,0)'); bg.addColorStop(0.08, hex(hz) + 'ff'); bg.addColorStop(1, hex(hz) + 'ff');
+    gc.fillStyle = bg; gc.fillRect(0, h * base - 6, w, h - h * base + 6);
+  });
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  if (ridge.material.map) ridge.material.map.dispose();
+  ridge.material.map = tex; ridge.material.needsUpdate = true; ridge.visible = true;
+}
+// optional photographic backdrop strip (e.g. the head unit's own 8192×1880 panorama) on a cylinder around the scene
+// The strip is wrapped on a cylinder around the scene: `horizon` = the fraction of the strip's height
+// (from the bottom) where its horizon line is, `degrees` = how much of a turn the strip covers,
+// `heading` turns it so a chosen segment faces the camera, `vscale` stretches it (taller ranges).
+const backdrop = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 128, 1, true), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, transparent: true, depthWrite: false }));
+backdrop.visible = false; scene.add(backdrop);
+const backdropCache = {};
+async function setBackdrop(spec) {
+  if (!spec || !spec.file) { backdrop.visible = false; return; }
+  let tex = backdropCache[spec.file];
+  if (!tex) { tex = await loadTex(spec.file, { srgb: true, flipY: spec.flipY !== false, wrap: true }); if (tex) backdropCache[spec.file] = tex; }
+  if (!tex) { backdrop.visible = false; return; }
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.ClampToEdgeWrapping; tex.repeat.set(-1, 1);
+  const R = spec.radius || 900, deg = spec.degrees || 360; const circ = 2 * Math.PI * R * (360 / deg);
+  const hgt = circ * tex.image.height / tex.image.width * (spec.vscale || 1);
+  backdrop.geometry.dispose(); backdrop.geometry = new THREE.CylinderGeometry(R, R, hgt, 256, 1, true);
+  const horizon = spec.horizon == null ? 0.5 : spec.horizon;
+  backdrop.position.set(0, camera.position.y + hgt * (0.5 - horizon), 0);   // its horizon line at the camera's height = the scene's horizon
+  backdrop.rotation.y = (spec.heading || 0) * Math.PI / 180;
+  backdrop.material.map = tex; backdrop.material.opacity = spec.opacity == null ? 1 : spec.opacity; backdrop.material.needsUpdate = true; backdrop.visible = true;
+  const tint = spec.tint || [1, 1, 1]; backdrop.material.color.setRGB(tint[0], tint[1], tint[2]);
+  backdrop.userData.spec = spec;
+}
+// stars for the night sky
+const stars = (() => {
+  const n = 2600, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), r = mulberry32(99);
+  for (let i = 0; i < n; i++) { const az = r() * Math.PI * 2, el = Math.asin(r()) * 0.98 + 0.02; const d = dirFrom(az * 180 / Math.PI, el * 180 / Math.PI).multiplyScalar(600); pos.set([d.x, d.y, d.z], i * 3); const b = 0.35 + r() * r() * 0.9, tint = r(); col.set([b * (0.85 + tint * 0.15), b * (0.9 + tint * 0.1), b], i * 3); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const p = new THREE.Points(geo, new THREE.PointsMaterial({ size: 2.2, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+  p.visible = false; scene.add(p); return p;
+})();
+
+// ---------------------------------------------------------------- time-of-day presets
+// az/el use the camera's convention (az 235 = the camera's own quarter). Grades are for layers the
+// app shares across times (the day wheels): out = ((px * tint * brightness) - 0.5) * contrast + 0.5.
+// The camera looks toward az ≈ 55° (the truck's rear-left quarter), so a sun between az 30 and 80
+// is in the frame behind the truck (dusk: backlit, sun glow over the cab); az 150 is behind the
+// camera's right shoulder (dawn: side-lit flank, pink anti-solar sky); az 262 is high front-right (day).
+// `pano` names a strip in the rig's textures.panos (BYD's own day / dusk / night horizons); without
+// one the procedural Sky + ridges are used. Presets in the rig (`times`) override these.
+const TIMES = Object.assign({
+  day:   { pano: 'day', sun: { az: 250, el: 60, color: 0xf6f8ff, intensity: 2.8 }, sky: { turbidity: 2.4, rayleigh: 2.2, mie: 0.003, mieG: 0.8 }, skyGain: [0.40, 0.48, 0.62], exposure: 0.9, envIntensity: 1.0, groundEnv: 0.9,
+           fog: { color: 0xc6d3df, near: 40, far: 420 }, hemi: { sky: 0xd6e4ff, ground: 0x707068, intensity: 0.5 }, ridge: 0x3f5068, ridgeLit: 0x8fa0b4,
+           lamps: 'day', stars: false, pools: 0, grade: { tint: [1, 1, 1], contrast: 1, brightness: 1 } },
+  dawn:  { pano: 'dusk', panoTint: [1.07, 0.97, 0.93], sun: { az: 150, el: 6, color: 0xffc09a, intensity: 2.6 }, sky: { turbidity: 6, rayleigh: 2.8, mie: 0.012, mieG: 0.86 }, skyGain: [0.62, 0.50, 0.56], exposure: 0.95, envIntensity: 1.0, groundEnv: 0.6,
+           fog: { color: 0xd8bfb8, near: 18, far: 300 }, hemi: { sky: 0xd9c2d8, ground: 0x6b5040, intensity: 0.35 }, ridge: 0x4a4260, ridgeLit: 0xa08098,
+           lamps: 'low', stars: false, pools: 0.25, grade: { tint: [1.04, 0.95, 0.92], contrast: 1.0, brightness: 0.88 } },
+  dusk:  { pano: 'dusk', panoTint: [0.98, 0.95, 1.0], sun: { az: 42, el: 4.5, color: 0xffb890, intensity: 1.3 }, sky: { turbidity: 8, rayleigh: 2.6, mie: 0.06, mieG: 0.93 }, skyGain: [0.55, 0.40, 0.42], exposure: 0.9, envIntensity: 1.1, groundEnv: 0.6,
+           fog: { color: 0xc9a08a, near: 22, far: 320 }, hemi: { sky: 0xb8c4d8, ground: 0x3a3c44, intensity: 0.45 }, ridge: 0x3a2e48, ridgeLit: 0xb07060,
+           lamps: 'low', stars: false, pools: 0.35, grade: { tint: [0.96, 0.94, 1.0], contrast: 1.04, brightness: 0.74 } },
+  night: { pano: 'night', sun: { az: 300, el: 38, color: 0x8ea3d6, intensity: 0.42 }, sky: { turbidity: 1.2, rayleigh: 0.3, mie: 0.0015, mieG: 0.7 }, skyGain: [0.045, 0.058, 0.10], exposure: 0.6, envIntensity: 0.26, groundEnv: 0.18,
+           fog: { color: 0x0b0f16, near: 14, far: 240 }, hemi: { sky: 0x2a3550, ground: 0x08080a, intensity: 0.3 }, ridge: 0x0b0e15, ridgeLit: 0x1b2232,
+           lamps: 'night', stars: true, pools: 1.0, grade: { tint: [0.72, 0.8, 1.0], contrast: 1.08, brightness: 0.42 } },
+}, rig.times || {});
+let currentTime = null;
+async function applyTime(name) {
+  const t = TIMES[name]; if (!t) throw new Error('no time ' + name);
+  currentTime = name;
+  const dir = dirFrom(t.sun.az, t.sun.el);
+  sun.position.copy(dir).multiplyScalar(40); sun.target.position.set(0, 0, 0); sun.color.set(t.sun.color); sun.intensity = t.sun.intensity;
+  for (const s of [sky, skyEnv]) { const u = s.material.uniforms; u.turbidity.value = t.sky.turbidity; u.rayleigh.value = t.sky.rayleigh; u.mieCoefficient.value = t.sky.mie; u.mieDirectionalG.value = t.sky.mieG; u.sunPosition.value.copy(dir); }
+  renderer.toneMappingExposure = t.exposure;
+  if (envRT) envRT.dispose();
+  envRT = pmrem.fromScene(envScene, 0.02); scene.environment = envRT.texture;
+  const ei = t.envIntensity == null ? 1 : t.envIntensity;
+  for (const m of [paintMat, chromeMat, alloyMat, skidMat, glassMat, lampCoverMat, tyreMat, caliperMat, plasticAoMat, tubMat, plasticMat, fabricMat]) m.envMapIntensity = ei;
+  for (const o of lamps) { const L = o.userData.lamp; if (L.unlit) L.unlit.envMapIntensity = ei; if (L.lit) L.lit.envMapIntensity = ei; }
+  const sg = t.skyGain == null ? [1, 1, 1] : (typeof t.skyGain === 'number' ? [t.skyGain, t.skyGain, t.skyGain] : t.skyGain);
+  sky.material.uniforms.skyGain.value.set(sg[0], sg[1], sg[2]);
+  for (const m of Object.values(groundMats)) m.envMapIntensity = t.groundEnv == null ? 1 : t.groundEnv;
+  scene.fog.color.set(t.fog.color); scene.fog.near = t.fog.near; scene.fog.far = t.fog.far;
+  hemi.color.set(t.hemi.sky); hemi.groundColor.set(t.hemi.ground); hemi.intensity = t.hemi.intensity;
+  stars.visible = !!t.stars;
+  for (const sp of headSpots) sp.intensity = 9 * (t.pools || 0);   // candela: a warm wash on the tarmac ahead of the bumper, not a spotlight disc
+  tailGlow.intensity = 2.5 * (t.pools || 0);
+  setLamps(t.lamps || 'day');
+  frame(az, el, dist);
+  // backdrop: the preset's own spec, or a named strip from the rig's textures.panos table
+  const bd = t.backdrop || (t.pano && T.panos && T.panos[t.pano] ? Object.assign({}, T.panoDefaults || {}, T.panos[t.pano], t.panoTint ? { tint: t.panoTint } : {}) : null);
+  if (bd) { await setBackdrop(bd); backdrop.userData.on = true; } else { backdrop.visible = false; backdrop.userData.on = false; }
+  if (t.fogMatch !== false) { const m = matchFog(4); t.fogMatched = m.fog; t.horizonSample = { sky: m.sky.map(Math.round), plain: m.plain.map(Math.round), row: m.horizonRow }; }
+  if (bd) { ridge.visible = !!t.ridgeWithBackdrop; if (ridge.visible) paintRidges(t); } else paintRidges(t);
+  return name;
+}
+window.setTime = (name, patch) => { if (patch) TIMES[name] = mergeDeep(TIMES[name], patch); return applyTime(name).then(() => { window.preview(); return TIMES[name]; }); };
+function mergeDeep(a, b) { const o = Object.assign({}, a); for (const k of Object.keys(b)) o[k] = (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k])) ? mergeDeep(a[k] || {}, b[k]) : b[k]; return o; }
+
+// ---------------------------------------------------------------- framing (same maths as v1: distance × bounding-sphere radius, look at the box centre)
+scene.updateMatrixWorld(true);
+const box3 = meshBox(model);
+const centre = box3.getCenter(new THREE.Vector3());
+const radius = box3.getSize(new THREE.Vector3()).length() / 2;
+let az = VIEW.az, el = VIEW.el, dist = VIEW.dist;
+function placeBillboards() {
+  const r = sceneGroup.userData.ridge; if (!r) return;
+  const dir = new THREE.Vector3().subVectors(centre, camera.position).setY(0).normalize();
+  const D = 800, w = 1800, h = 200, base = 0.62;
+  r.scale.set(w, h, 1); r.position.copy(centre).addScaledVector(dir, D);
+  r.position.y = camera.position.y + 0.8 - h * (base - 0.5);   // the ridge bases (62 % up the texture) sit a hair above the horizon, which is at the camera's height
+  r.lookAt(camera.position.x, r.position.y, camera.position.z);
+}
+/** Read one pixel of the last render (canvas coordinates, top-left origin) as sRGB 0–255. */
+function readPx(x, y) { const gl = renderer.getContext(); const p = new Uint8Array(4); gl.readPixels(Math.round(x), H - 1 - Math.round(y), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p); return [p[0], p[1], p[2], p[3]]; }
+/** The horizon row in canvas pixels: a far point at the camera's own height along the view direction. */
+function horizonRow() { const d = new THREE.Vector3().subVectors(centre, camera.position).setY(0).normalize(); const p = camera.position.clone().addScaledVector(d, 2000); return project(p.x, camera.position.y, p.z)[1]; }
+// Fog is applied in linear light and then tone-mapped, so a fog colour that matches the visible sky at
+// the horizon can't be written down directly: sample the rendered sky just above the horizon and the
+// fully fogged plain just below it, and nudge the fog colour until the two agree (a few iterations).
+function matchFog(iterations = 4) {
+  const vis = { body: bodyGroup.visible, drive: drive.visible, ridge: ridge.visible, bd: backdrop.visible, stars: stars.visible, sg: sceneGroup.visible, sky: sky.visible };
+  const wl = wheelNames.map((n) => wheels[n].layer.visible);
+  // sample whatever really sits behind the horizon: the photographic backdrop when one is set, else the procedural sky
+  bodyGroup.visible = false; drive.visible = false; ridge.visible = false; backdrop.visible = !!backdrop.material.map && backdrop.userData.on; stars.visible = false; sceneGroup.visible = true; sky.visible = true;
+  for (const n of wheelNames) wheels[n].layer.visible = false;
+  const yh = horizonRow(); const xs = [W * 0.3, W * 0.45, W * 0.6];
+  const avg = (dy) => { const s = [0, 0, 0]; for (const x of xs) { const p = readPx(x, yh + dy); s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; } return s.map((v) => v / xs.length); };
+  let skyC = null, plainC = null;
+  for (let i = 0; i < iterations; i++) {
+    renderer.render(scene, camera);
+    skyC = avg(-6); plainC = avg(9);   // 9 px under the horizon is ~450 units out: fully fogged plain
+    const f = scene.fog.color;
+    const k = [0, 1, 2].map((c) => Math.min(1.6, Math.max(0.6, (skyC[c] + 1) / (plainC[c] + 1))));
+    f.setRGB(Math.min(1, f.r * Math.pow(k[0], 2.2)), Math.min(1, f.g * Math.pow(k[1], 2.2)), Math.min(1, f.b * Math.pow(k[2], 2.2)));
+  }
+  bodyGroup.visible = vis.body; drive.visible = vis.drive; ridge.visible = vis.ridge; backdrop.visible = vis.bd; stars.visible = vis.stars; sceneGroup.visible = vis.sg; sky.visible = vis.sky;
+  wheelNames.forEach((n, i) => { wheels[n].layer.visible = wl[i]; });
+  return { horizonRow: yh, sky: skyC, plain: plainC, fog: hex(scene.fog.color) };
+}
+window.matchFog = matchFog;
+function frame(a, e, d) {
+  az = a; el = e; dist = d;
+  camera.fov = VIEW.fov; camera.updateProjectionMatrix();
+  const dd = d * radius, dir = dirFrom(a, e);
+  camera.position.copy(centre).addScaledVector(dir, dd);
+  camera.lookAt(centre);
+  camera.updateMatrixWorld(true);
+  placeBillboards();
+}
+function project(x, y, z) { const v = new THREE.Vector3(x, y, z).project(camera); return [Math.round((v.x + 1) / 2 * W * 10) / 10, Math.round((1 - v.y) / 2 * H * 10) / 10]; }
+/** Ground-plane (x, z at y = ground) → canvas pixel homography, by DLT on four projected points. */
+function groundHomography() {
+  const src = [[-3, -3], [3, -3], [3, 3], [-3, 3]];
+  const dst = src.map(([x, z]) => project(x, g, z));
+  const M = [];
+  for (let i = 0; i < 4; i++) { const [x, y] = src[i], [u, v] = dst[i]; M.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u]); M.push([0, 0, 0, x, y, 1, -v * x, -v * y, v]); }
+  for (let c = 0; c < 8; c++) {
+    let p = c; for (let r = c + 1; r < 8; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < 8; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; for (let k = c; k <= 8; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((row, i) => row[8] / row[i]).concat([1]);
+}
+
+// ---------------------------------------------------------------- layer visibility
+function show(layer) {
+  bodyGroup.visible = ['body', 'all', 'bg', 'wheelnear', 'wheelfar'].includes(layer) || layer.startsWith('wheel_');
+  drive.visible = layer === 'drive' || layer === 'all';
+  for (const n of wheelNames) wheels[n].layer.visible = layer === 'all' || layer === 'bg' || layer === 'wheel_' + n || layer === 'body';
+  sceneGroup.visible = layer === 'bg' || layer === 'all';
+  backdrop.visible = !!(backdrop.material.map && backdrop.userData.on && (layer === 'bg' || layer === 'all'));   // three only skips visible === false, so coerce
+  stars.visible = !!(stars.userData.on && (layer === 'bg' || layer === 'all'));
+  sky.visible = layer === 'bg' || layer === 'all';
+}
+Object.defineProperty(stars.userData, 'on', { get() { return TIMES[currentTime] && !!TIMES[currentTime].stars; } });
+
+// ---------------------------------------------------------------- capture: render, crop to the opaque box, POST to serve.js
+const work = document.createElement('canvas'); work.width = W; work.height = H;
+const wctx = work.getContext('2d', { willReadFrequently: true });
+async function capture(name, full = false, render = true) {
+  if (render) renderer.render(scene, camera);
+  wctx.clearRect(0, 0, W, H);
+  wctx.drawImage(renderer.domElement, 0, 0);
+  let x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
+  if (!full) {
+    const d = wctx.getImageData(0, 0, W, H).data;
+    x0 = W; y0 = H; x1 = -1; y1 = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    if (x1 < 0) return null;
+    x0 = Math.max(0, x0 - 2); y0 = Math.max(0, y0 - 2); x1 = Math.min(W - 1, x1 + 2); y1 = Math.min(H - 1, y1 + 2);
+  }
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+  const crop = document.createElement('canvas'); crop.width = cw; crop.height = ch;
+  crop.getContext('2d').drawImage(work, x0, y0, cw, ch, 0, 0, cw, ch);
+  const url = crop.toDataURL('image/png');
+  const r = await fetch('/save?name=' + encodeURIComponent(name + '.png'), { method: 'POST', body: url });
+  say(name + ' ' + cw + 'x' + ch + ' ' + await r.text());
+  return { x: x0, y: y0, w: cw, h: ch };
+}
+async function saveJson(name, obj) { await fetch('/save?name=' + encodeURIComponent(name), { method: 'POST', body: JSON.stringify(obj, null, 1) }); }
+// quick look: the current frame (over a dark background) scaled down and saved as JPEG — for iterating on lighting without screenshots
+window.snap = async (name = 'snap', scale = 0.5, bg = '#0b1118') => {
+  const c = document.createElement('canvas'); c.width = Math.round(W * scale); c.height = Math.round(H * scale);
+  const g2 = c.getContext('2d'); g2.fillStyle = bg; g2.fillRect(0, 0, c.width, c.height); g2.drawImage(renderer.domElement, 0, 0, c.width, c.height);
+  const r = await fetch('/save?name=' + encodeURIComponent(name + '.jpg'), { method: 'POST', body: c.toDataURL('image/jpeg', 0.9) });
+  return await r.text();
+};
+
+// ---------------------------------------------------------------- inclinometer elevations
+const VIEWS = Object.assign({
+  side:  { az: 180, el: 0, fov: 9, fill: 0.9, sunAz: 150 },     // nose to the right, driver's side
+  front: { az: 270, el: 2.5, fov: 9, fill: 0.6, sunAz: 245 },   // fill by width; the height must also clear the canvas (checked below)
+  rear:  { az: 90, el: 2.5, fov: 9, fill: 0.6, sunAz: 70 },
+}, rig.views || {});
+function frameView(v) {
+  camera.fov = v.fov; camera.updateProjectionMatrix();
+  const size = box3.getSize(new THREE.Vector3());
+  const extent = (v.az % 180 === 0) ? size.x : size.z;
+  const fovH = 2 * Math.atan(Math.tan(v.fov * Math.PI / 360) * W / H);
+  let d = (extent / 2 / v.fill) / Math.tan(fovH / 2);
+  // never let the tyres fall off the bottom edge: the truck's height must fit 88 % of the frame too
+  d = Math.max(d, (size.y / 2 / 0.88) / Math.tan(v.fov * Math.PI / 360));
+  camera.position.copy(centre).addScaledVector(dirFrom(v.az, v.el), d);
+  camera.lookAt(centre); camera.updateMatrixWorld(true);
+}
+async function renderViews(meta, time = 'day') {
+  const saved = { az, el, dist };
+  await applyTime(time);
+  meta.views = {};
+  for (const [name, v] of Object.entries(VIEWS)) {
+    const t = TIMES[time];
+    const dir = dirFrom(v.sunAz == null ? v.az - 30 : v.sunAz, v.sunEl == null ? 42 : v.sunEl);
+    sun.position.copy(dir).multiplyScalar(40);
+    frameView(v);
+    show('body'); setBodyMode('solid'); setWheelMode('solid'); setSpin(0);
+    const crop = await capture(`${TAG}_view_${name}`);
+    const side = name === 'side';
+    const zNear = v.az === 180 ? -tr : v.az === 0 ? tr : 0;
+    meta.views[name] = {
+      canvasCrop: crop, view: { az: v.az, el: v.el, fov: v.fov },
+      ground: project(side ? midX : (name === 'front' ? fx : rx), g, side ? -tr : -tr)[1],
+      pivot: project(side ? midX : (name === 'front' ? fx : rx), g, 0),
+      hubs: side ? { front: project(fx, ay, -tr), rear: project(rx, ay, -tr) } : { left: project(name === 'front' ? fx : rx, ay, tr), right: project(name === 'front' ? fx : rx, ay, -tr) },
+      pxPerM: side ? Math.abs(project(fx, g, -tr)[0] - project(rx, g, -tr)[0]) / (wb * MPU) : Math.abs(project(fx, g, tr)[0] - project(fx, g, -tr)[0]) / (2 * tr * MPU),
+    };
+  }
+  frame(saved.az, saved.el, saved.dist);
+  await applyTime(time);
+}
+
+// ---------------------------------------------------------------- the job
+window.renderAll = async (opts = {}) => {
+  const times = opts.times || (params.get('times') || 'day,dawn,dusk,night').split(',').filter(Boolean);
+  const wheelTimes = opts.wheelTimes || (params.get('wheelTimes') || 'night').split(',').filter(Boolean);
+  const phases = opts.phases || parseInt(params.get('phases') || '12', 10);
+  const base = opts.base || 'day';
+  const doViews = opts.views !== false && params.get('views') !== '0';
+  const t0 = performance.now();
+  frame(VIEW.az, VIEW.el, VIEW.dist);
+  await applyTime(base);
+  const meta = { tag: TAG, canvas: [W, H], view: { az: VIEW.az, el: VIEW.el, dist: VIEW.dist, fov: camera.fov }, phases, layers: {}, wheels: {}, anchors: {} };
+  meta.metresPerUnit = MPU;
+  meta.model = { name: rig.name || rig.model.split('/').pop(), up: rig.up, toMetres: rig.toMetres, unitScale: S, bbox: { min: box3.min.toArray(), max: box3.max.toArray() } };
+  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default') };
+  meta.camera = { position: camera.position.toArray(), target: centre.toArray(), fov: camera.fov, aspect: W / H };
+  meta.files = { body: `${TAG}_body.png`, bodySolid: `${TAG}_body_solid.png`, drive: `${TAG}_drive.png`, bg: null, wheels: {} };
+  meta.times = {};
+  setSpin(0); setSteer(0);
+  // neutral layers under the base (day) light
+  show('body'); setBodyMode('ghost'); setWheelMode('shadow'); meta.layers.body = await capture(`${TAG}_body`);
+  setBodyMode('solid'); meta.layers.bodySolid = await capture(`${TAG}_body_solid`);
+  show('drive'); meta.layers.drive = await capture(`${TAG}_drive`);
+  const doWheels = async (prefix) => {
+    const out = {};
+    for (const n of wheelNames) {
+      show('wheel_' + n); setWheelMode('solid');
+      setBodyMode(nearSide(n) ? 'depth' : 'shadow');   // near wheels are cut by the arches so the painted shell composes over them
+      bodyGroup.visible = true;
+      out[n] = [];
+      for (let p = 0; p < phases; p++) { setSpin(p / phases * 2 * Math.PI); out[n].push(await capture(`${prefix}_wheel_${n}_${String(p).padStart(2, '0')}`)); }
+    }
+    setSpin(0); setBodyMode('solid');
+    return out;
+  };
+  const baseFrames = await doWheels(TAG);
+  for (const n of wheelNames) {
+    const wm = wheels[n];
+    meta.wheels[n] = { hub: project(hubW[n].x, hubW[n].y, hubW[n].z), frames: baseFrames[n], near: nearSide(n),
+      pivotModel: wm.hub.toArray(), pivotWorld: hubW[n].toArray(), spinAxis: 'model +Y (three -Z); positive roll = forward', steerAxis: 'model +Z (three +Y)' };
+    meta.files.wheels[n] = baseFrames[n].map((_, p) => `${TAG}_wheel_${n}_${String(p).padStart(2, '0')}.png`);
+  }
+  // scene geometry + anchors (v1 formulas, v1 units)
+  meta.groundH = groundHomography();
+  meta.road = Object.assign({ unitsPerM: UPM, ground: g }, ROAD, { centreLine: SCN.centreLine, dashes: SCN.centreLine === 'dashed', railZ: SCN.rail === false ? null : SCN.railZ });
+  meta.anchors = {
+    battery: project(midX + 0.02, ay - 0.02, 0), engine: project(fx - 0.09, ay + 0.12, 0),
+    frontMotor: project(fx + 0.12, ay + 0.06, 0), rearMotor: project(rx - 0.02, ay + 0.03, 0),
+    nose: project(box3.min.x, ay + 0.1, 0), tail: project(box3.max.x, ay + 0.1, 0),
+    roof: project(centre.x, box3.max.y, 0),
+    groundFront: project(fx, g, -tr), groundRear: project(rx, g, -tr), groundFrontFar: project(fx, g, tr), groundRearFar: project(rx, g, tr),
+    pivot: project(midX, g, 0),
+  };
+  meta.unitsPerPx = (box3.max.x - box3.min.x) / Math.abs(meta.anchors.nose[0] - meta.anchors.tail[0]);
+  // per time of day: bg plate (truck as a shadow caster only) + painted shell (+ wheels where asked)
+  for (const tn of times) {
+    await applyTime(tn);
+    const t = TIMES[tn];
+    show('bg'); setBodyMode('shadow'); setWheelMode('shadow');
+    const bgCrop = await capture(`${TAG}_${tn}_bg`, true);
+    if (!meta.layers.bg) { meta.layers.bg = bgCrop; }
+    const entry = { bg: `${TAG}_${tn}_bg.png`, bodySolid: tn === base ? `${TAG}_body_solid.png` : `${TAG}_${tn}_body_solid.png`, wheels: null, grade: t.grade,
+      sun: { az: t.sun.az, el: t.sun.el, color: hex(t.sun.color) }, fog: hex(t.fog.color), lamps: t.lamps, exposure: t.exposure };
+    if (tn !== base) { show('body'); setBodyMode('solid'); setWheelMode('shadow'); const c = await capture(`${TAG}_${tn}_body_solid`); entry.bodySolidCrop = c; }
+    if (tn !== base && wheelTimes.includes(tn)) {
+      const fr = await doWheels(`${TAG}_${tn}`);
+      entry.wheels = {}; for (const n of wheelNames) entry.wheels[n] = { frames: fr[n], files: fr[n].map((_, p) => `${TAG}_${tn}_wheel_${n}_${String(p).padStart(2, '0')}.png`) };
+    }
+    meta.times[tn] = entry;
+    if (tn === base) meta.files.bg = entry.bg;
+  }
+  meta.defaultTime = base;
+  if (doViews) await renderViews(meta, base);
+  await applyTime(base);
+  await saveJson(`${TAG}_meta.json`, meta);
+  show('all'); setBodyMode('solid'); setWheelMode('solid');
+  renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0);
+  const secs = ((performance.now() - t0) / 1000).toFixed(0);
+  say(`done ${TAG} in ${secs}s — times ${times.join(',')} wheels@${wheelTimes.join(',')}`);
+  if (params.get('auto') !== '1') await saveJson(`${TAG}_done.json`, { tag: TAG, seconds: +secs, times, wheelTimes, paint: meta.paint });
+  return meta;
+};
+// preview = the finished look (painted truck on the scene, no driveline); previewXray = the ghost + chassis check
+// ---------------------------------------------------------------- extras: lit-lamp overlays + motion-blurred road plates
+// Lit lamps: one transparent layer per lamp group (same camera, cropped), rendered at night with the
+// body and wheels as depth-only occluders (clear covers hidden so they don't occlude their own
+// projectors) — the app composites them additively from real car states.
+const LIGHT_GROUPS = {
+  head:    (L) => L.kind === 'head' || L.kind === 'drl',
+  tail:    (L) => L.kind === 'tail',
+  brake:   (L) => L.kind === 'brake' || L.kind === 'tail',   // the tagged brake pieces are slivers inside the cluster: braking = the whole rear cluster, brighter
+  turn_L:  (L) => L.kind === 'turn' && L.side === 'L',
+  turn_R:  (L) => L.kind === 'turn' && L.side === 'R',
+  fog:     (L) => L.kind === 'fog',
+  reverse: (L) => L.kind === 'reverse',
+};
+// This model carries no lightTurn state: the Shark's front indicators ARE its DRL strips (sequential
+// amber), so `turn_*` falls back to those strips lit amber when no lightTurn node exists.
+const turnFallback = { turn_L: (L) => L.kind === 'drl' && L.side === 'L', turn_R: (L) => L.kind === 'drl' && L.side === 'R' };
+const amberLit = lampLit(0xffb030, 0xffa020, 6.0);
+const brakeLit = lampLit(0xff2418, 0xff1a0c, 6.0);
+async function renderLights(meta, time = 'night') {
+  await applyTime(time);
+  frame(VIEW.az, VIEW.el, VIEW.dist);
+  meta.lights = {};
+  const allSprites = glows.children;
+  for (const [name, pick] of Object.entries(LIGHT_GROUPS)) {
+    let members = lamps.filter((o) => o.userData.lamp.lit && pick(o.userData.lamp));
+    let synthetic = false;
+    if (!members.length && turnFallback[name]) { members = lamps.filter((o) => turnFallback[name](o.userData.lamp)); synthetic = true; }
+    if (!members.length) continue;
+    show('body'); setWheelMode('depth'); setBodyMode('depth');
+    for (const o of bodyMeshes) if (o.userData.solid && o.userData.solid.transparent) o.visible = false;   // clear covers / glass never occlude
+    allSprites.forEach((s) => { s.visible = false; });
+    for (const o of members) {
+      const L = o.userData.lamp;
+      o.visible = true;
+      o.material = name.startsWith('turn') && synthetic ? amberLit : name === 'brake' ? brakeLit : L.lit;
+      if (L.sprites) L.sprites.forEach((s) => { s.visible = true; if (name.startsWith('turn') && synthetic) s.material.color.set(0xffb040); });
+    }
+    const crop = await capture(`${TAG}_light_${name}`);
+    for (const o of members) { const L = o.userData.lamp; if (L.sprites && name.startsWith('turn') && synthetic) L.sprites.forEach((s) => s.material.color.set(L.glow[0])); }
+    if (crop) meta.lights[name] = Object.assign({ file: `${TAG}_light_${name}.png`, lamps: members.map((o) => nameOf(o)), synthetic }, crop);
+    setBodyMode('solid'); setWheelMode('solid');
+  }
+  setLamps(TIMES[time].lamps);
+  return meta.lights;
+}
+// Motion blur for the road band: the plate is re-rendered, then streaked away from the road's
+// vanishing point below the horizon (6 px at the horizon → 24 px at the bottom edge). Done on the
+// GPU from a canvas copy of the frame so colours round-trip exactly.
+const blurQuad = (() => {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { tex: { value: null }, vp: { value: new THREE.Vector2(0.8, 0.78) }, horizon: { value: 0.78 }, minLen: { value: 0.0025 }, maxLen: { value: 0.01 }, aspect: { value: W / H } },
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: `uniform sampler2D tex; uniform vec2 vp; uniform float horizon, minLen, maxLen, aspect; varying vec2 vUv;
+      void main() {
+        vec4 c = texture2D(tex, vUv);
+        if (vUv.y >= horizon) { gl_FragColor = c; }
+        else {
+          float t = clamp((horizon - vUv.y) / horizon, 0.0, 1.0);
+          float len = mix(minLen, maxLen, t);
+          vec2 d = vUv - vp; d.x *= aspect; d = normalize(d); d.x /= aspect;
+          vec4 acc = vec4(0.0);
+          for (int i = 0; i < 24; i++) { float f = float(i) / 23.0 - 0.5; vec2 p = vUv + d * len * f; p.y = min(p.y, horizon); acc += texture2D(tex, p); }
+          gl_FragColor = acc / 24.0;
+        }
+        #include <colorspace_fragment>
+      }`,
+    depthTest: false, depthWrite: false, toneMapped: false,
+  });
+  const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+  const s = new THREE.Scene(); s.add(q);
+  return { scene: s, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), mat };
+})();
+async function renderBlurPlates(meta, times, { minPx = 6, maxPx = 24 } = {}) {
+  meta.blur = { minPx, maxPx };
+  for (const tn of times) {
+    await applyTime(tn);
+    show('bg'); setBodyMode('shadow'); setWheelMode('shadow');
+    renderer.render(scene, camera);
+    wctx.clearRect(0, 0, W, H); wctx.drawImage(renderer.domElement, 0, 0);
+    const tex = new THREE.CanvasTexture(work); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    const vpPx = project(2000, g, 0), yh = horizonRow();   // the road recedes toward +X from this camera (the nose end is behind the camera's shoulder)
+    const u = blurQuad.mat.uniforms;
+    u.tex.value = tex; u.vp.value.set(vpPx[0] / W, 1 - vpPx[1] / H); u.horizon.value = 1 - yh / H; u.minLen.value = minPx / W; u.maxLen.value = maxPx / W; u.aspect.value = W / H;
+    renderer.render(blurQuad.scene, blurQuad.camera);
+    const crop = await capture(`${TAG}_${tn}_bg_blur`, true, false);
+    tex.dispose();
+    meta.times[tn] = meta.times[tn] || {};
+    meta.times[tn].bgBlur = Object.assign({ file: `${TAG}_${tn}_bg_blur.png` }, crop);
+    meta.blur.vanishingPoint = vpPx; meta.blur.horizonRow = yh;
+  }
+}
+window.renderExtras = async (opts = {}) => {
+  const times = opts.times || (params.get('times') || 'day,dawn,dusk,night').split(',').filter(Boolean);
+  const meta = { tag: TAG, canvas: [W, H], times: {} };
+  frame(VIEW.az, VIEW.el, VIEW.dist);
+  if (opts.lights !== false) await renderLights(meta, 'night');
+  if (opts.blur !== false) await renderBlurPlates(meta, times, opts);
+  await applyTime('day');
+  await saveJson(`${TAG}_extras.json`, meta);
+  window.preview();
+  say(`extras done: lights ${Object.keys(meta.lights || {}).join(',')} blur ${times.join(',')}`);
+  return meta;
+};
+window.preview = (a = az, e = el, d = dist, spin = 0) => { frame(a, e, d); show('all'); drive.visible = false; setBodyMode('solid'); setWheelMode('solid'); setSpin(spin); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+window.previewXray = (a = az, e = el, d = dist) => { frame(a, e, d); show('all'); setBodyMode('ghost'); setWheelMode('solid'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+window.previewView = (name) => { frameView(VIEWS[name]); show('body'); setBodyMode('solid'); setWheelMode('solid'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+window.solid = (on) => { setBodyMode(on ? 'solid' : 'ghost'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+window.setSpin = setSpin; window.setSteer = setSteer; window.TIMES = TIMES; window.VIEWS = VIEWS; window.scene = scene; window.THREE = THREE; window.rig = rig;
+window.lights = { sun, hemi, headSpots, tailGlow }; window.renderer = renderer; window.camera = camera;
+window.info = () => ({ hubs: hubW, wp, bbox: { min: box3.min.toArray(), max: box3.max.toArray() }, centre: centre.toArray(), radius, S, parts: bodyMeshes.length, lamps: lamps.map((o) => [nameOf(o), o.userData.lamp.kind]) });
+// debug looks: 'ao' shows the AO atlases as colour, 'uv' the tyre map on everything, 'clay' flat grey
+window.debug = (mode) => { debugMode = mode || null; setBodyMode('solid'); setWheelMode('solid'); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+// look at a world point from (az, el) at an absolute distance; render as-is (no mode changes)
+window.look = (target, a, e, d) => { const t = new THREE.Vector3(...target); camera.position.copy(t).addScaledVector(dirFrom(a, e), d); camera.lookAt(t); camera.updateMatrixWorld(true); renderer.setClearColor(0x0b1118, 1); renderer.render(scene, camera); renderer.setClearColor(0x000000, 0); return 'ok'; };
+// show only the meshes whose part name contains `part` (null restores), with an optional override material
+window.isolate = (part, mat) => {
+  const all = bodyMeshes.concat(...wheelNames.map((n) => wheels[n].meshes));
+  for (const o of all) { if (o.userData.isoMat) { o.material = o.userData.isoMat; delete o.userData.isoMat; } o.visible = !part || (o.userData.part || '').includes(part); if (part && o.visible && mat) { o.userData.isoMat = o.material; o.material = mat; } }
+  renderer.render(scene, camera); return all.filter((o) => o.visible).map((o) => o.userData.part);
+};
+
+await applyTime(params.get('time') || 'day');
+frame(az, el, dist);
+window.preview();
+say(`ready — ${bodyMeshes.length} body meshes, ${lamps.length} lamps, hub FR ${hubW.FR.toArray().map((v) => v.toFixed(3))}, ground ${g.toFixed(4)}\nrenderAll({times,wheelTimes,phases,views}) | preview(az,el,dist,spin) | setTime(name,patch) | setPaint(hex) | debug('ao'|'uv'|'clay'|null)`);
+if (params.get('auto') === '1') {
+  await window.renderAll();
+  if (params.get('extras') !== '0') await window.renderExtras();
+  await saveJson(`${TAG}_done.json`, { tag: TAG, extras: params.get('extras') !== '0', finished: new Date().toISOString() });
+}
+</script>
+</body>
+</html>
