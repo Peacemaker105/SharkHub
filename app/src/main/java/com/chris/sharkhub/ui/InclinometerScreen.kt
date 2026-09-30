@@ -39,11 +39,15 @@ import com.chris.sharkhub.data.Prefs
 import com.chris.sharkhub.sensors.Attitude
 import com.chris.sharkhub.sensors.Inclinometer
 import com.chris.sharkhub.ui.inclino.AttitudeIndicator
+import com.chris.sharkhub.ui.inclino.PITCH_CAUTION
+import com.chris.sharkhub.ui.inclino.PITCH_DANGER
+import com.chris.sharkhub.ui.inclino.ROLL_CAUTION
+import com.chris.sharkhub.ui.inclino.ROLL_DANGER
 import com.chris.sharkhub.ui.inclino.VehicleTilt
 import com.chris.sharkhub.ui.inclino.VehicleView
+import com.chris.sharkhub.ui.inclino.pitchCaption
+import com.chris.sharkhub.ui.inclino.rollCaption
 import kotlin.math.abs
-import kotlin.math.roundToInt
-import kotlin.math.tan
 
 /**
  * Off-road inclinometer: a side-view ute that tips with pitch, a rear-view ute that tips with roll,
@@ -102,11 +106,11 @@ fun InclinometerContent(
             }
         }
         val pitch: @Composable (Modifier) -> Unit = { m ->
-            AngleCard("Pitch", att.pitch, VehicleView.SIDE, caution = 25f, danger = 35f,
+            AngleCard("Pitch", att.pitch, VehicleView.SIDE, caution = PITCH_CAUTION, danger = PITCH_DANGER,
                 caption = pitchCaption(att.pitch), modifier = m)
         }
         val roll: @Composable (Modifier) -> Unit = { m ->
-            AngleCard("Roll", att.roll, rollView, caution = 20f, danger = 30f,
+            AngleCard("Roll", att.roll, rollView, caution = ROLL_CAUTION, danger = ROLL_DANGER,
                 caption = rollCaption(att.roll), modifier = m) {
                 ViewSwap(rollView) { onRollView(if (rollView == VehicleView.FRONT) VehicleView.REAR else VehicleView.FRONT) }
             }
@@ -136,21 +140,6 @@ fun InclinometerContent(
             }
         }
     }
-}
-
-private fun pitchCaption(deg: Float): String {
-    val grade = (tan(Math.toRadians(deg.toDouble())) * 100).roundToInt()
-    return when {
-        abs(deg) < 1f -> "Level"
-        deg > 0 -> "Nose up · ${abs(grade)}% grade"
-        else -> "Nose down · ${abs(grade)}% grade"
-    }
-}
-
-private fun rollCaption(deg: Float): String = when {
-    abs(deg) < 1f -> "Level"
-    deg > 0 -> "Right side down"
-    else -> "Left side down"
 }
 
 /** A small pill that flips the roll card between the front and the rear of the truck. */

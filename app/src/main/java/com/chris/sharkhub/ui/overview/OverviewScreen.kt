@@ -1,5 +1,6 @@
 package com.chris.sharkhub.ui.overview
 
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -120,9 +121,10 @@ fun OverviewScreen(nav: NavController, car: CarManager) {
         onDispose { inc.stop(); compass.stop() }
     }
     val prefs = remember { Prefs(ctx) }
+    val timeOfDay = rememberTimeOfDay(prefs.sceneLighting)
     OverviewContent(nav, car, tele, vehicle, discovery?.backend != null, att, heading, last,
         initialXray = prefs.carXray, onXrayChange = { prefs.carXray = it },
-        rollView = if (prefs.inclinoRollView == "rear") VehicleView.REAR else VehicleView.FRONT)
+        rollView = if (prefs.inclinoRollView == "rear") VehicleView.REAR else VehicleView.FRONT, timeOfDay = timeOfDay)
 }
 
 /** Stateless body — also what the screenshot tests render. */
@@ -143,6 +145,10 @@ fun OverviewContent(
     onXrayChange: (Float) -> Unit = {},
     /** Which end of the truck the pitch/roll card shows — the inclinometer's front/rear choice. */
     rollView: VehicleView = VehicleView.FRONT,
+    /** The light the scene is drawn in; screens take it from [rememberTimeOfDay]. */
+    timeOfDay: TimeOfDay = TimeOfDay.DAY,
+    /** Incline lens: start on the roll (end) view rather than the side view. */
+    initialInclineRoll: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -177,13 +183,15 @@ fun OverviewContent(
         if (isPortrait()) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(end = 20.dp, bottom = 16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, Modifier.fillMaxWidth().height(440.dp)) { lens = it }
+                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, initialInclineRoll,
+                    Modifier.fillMaxWidth().height(440.dp)) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.fillMaxWidth().padding(start = 20.dp))
             }
         } else {
             // the scene owns everything left of the mode column and meets the screen's left edge
             Row(Modifier.weight(1f).fillMaxWidth().padding(end = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, Modifier.weight(1f).fillMaxHeight()) { lens = it }
+                ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, initialInclineRoll,
+                    Modifier.weight(1f).fillMaxHeight()) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.width(216.dp).fillMaxHeight())
             }
         }
@@ -203,15 +211,23 @@ fun OverviewContent(
 @Composable
 private fun ScenePanel(
     scene: SceneState, art: CarArt?, tele: Telemetry, att: Attitude, heading: Float?, rollView: VehicleView, lens: Lens,
-    xray: Float, onXray: (Float) -> Unit, modifier: Modifier, onLens: (Lens) -> Unit,
+    xray: Float, onXray: (Float) -> Unit, timeOfDay: TimeOfDay, initialInclineRoll: Boolean, modifier: Modifier, onLens: (Lens) -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
     val r = LocalStyle.current.panelRadius
+    var inclineRoll by remember { mutableStateOf(initialInclineRoll) }
+    val cards = 178.dp + 22.dp
     // square off the left edge — the scene runs to the edge of the screen
     Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
         Box(Modifier.fillMaxSize()) {
-            if (art != null) CarPhotoScene(scene, art, Modifier.fillMaxSize(), avoidRight = 178.dp + 22.dp)
-            else CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
+            // The Incline lens is a camera change: the hero scene fades out and the flat tilt view fades in.
+            Crossfade(lens == Lens.INCLINE, animationSpec = tween(650), label = "camera") { incline ->
+                when {
+                    incline -> InclineView(att, art, timeOfDay, rollView, inclineRoll, { inclineRoll = it }, Modifier.fillMaxSize(), avoidRight = cards)
+                    art != null -> CarPhotoScene(scene, art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay)
+                    else -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
+                }
+            }
             // top-left: speed + stats
             Column(Modifier.align(Alignment.TopStart).padding(start = 24.dp, top = 14.dp)) {
                 Row(verticalAlignment = Alignment.Bottom) {
@@ -228,11 +244,11 @@ private fun ScenePanel(
             // top-right: which lens
             Column(Modifier.align(Alignment.TopEnd).padding(end = 20.dp, top = 16.dp), horizontalAlignment = Alignment.End) {
                 SectionLabel(lens.label, color = cs.primary)
-                Text(when (lens) {
-                    Lens.TYRES -> "Pressure at each corner"
-                    Lens.INCLINE -> "Pitch and roll, live"
-                    Lens.ENERGY -> "Battery, engine and motors"
-                }, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                when (lens) {
+                    Lens.TYRES -> Text("Pressure at each corner", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    Lens.INCLINE -> Text("Pitch and roll, live", style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant)
+                    Lens.ENERGY -> ElectricSummary(tele)
+                }
             }
             // left edge: pedal travel, small and see-through
             Row(Modifier.align(Alignment.CenterStart).padding(start = 18.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -248,8 +264,8 @@ private fun ScenePanel(
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) {
                 SegmentedControl(Lens.entries.map { it.label }, lens.ordinal) { onLens(Lens.entries[it]) }
             }
-            // Shell ↔ x-ray: only when the painted shell was rendered. Kept narrow so it clears the lens tabs.
-            if (art?.bodySolid != null) {
+            // Shell ↔ x-ray: only when the painted shell was rendered, and not on the flat tilt views. Kept narrow so it clears the lens tabs.
+            if (art?.bodySolid != null && lens != Lens.INCLINE) {
                 Column(Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 6.dp).width(150.dp)) {
                     Slider(value = xray, onValueChange = onXray, modifier = Modifier.fillMaxWidth().height(28.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -257,6 +273,21 @@ private fun ScenePanel(
                         SectionLabel("X-ray")
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The electric system in four lines under the lens label: what the callouts say, gathered where the eye lands first. */
+@Composable
+private fun ElectricSummary(tele: Telemetry) {
+    val cs = MaterialTheme.colorScheme
+    Column(horizontalAlignment = Alignment.End) {
+        for ((label, value) in listOf("Battery" to Electric.battery(tele), "Engine" to Electric.engine(tele),
+                                      "Motor" to Electric.motor(tele), "Charge" to Electric.charge(tele))) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(label, style = MaterialTheme.typography.bodyMedium, color = cs.onSurfaceVariant, maxLines = 1)
+                Text(value, style = MaterialTheme.typography.bodyMedium, color = cs.onSurface, maxLines = 1)
             }
         }
     }

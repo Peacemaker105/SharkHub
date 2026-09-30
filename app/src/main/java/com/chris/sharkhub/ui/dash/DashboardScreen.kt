@@ -110,7 +110,9 @@ import com.chris.sharkhub.ui.overview.CarArt
 import com.chris.sharkhub.ui.overview.CarPhotoScene
 import com.chris.sharkhub.ui.overview.CarScene
 import com.chris.sharkhub.ui.overview.SceneState
+import com.chris.sharkhub.ui.overview.TimeOfDay
 import com.chris.sharkhub.ui.overview.rememberCarArt
+import com.chris.sharkhub.ui.overview.rememberTimeOfDay
 import com.chris.sharkhub.ui.theme.LocalStyle
 import kotlinx.coroutines.launch
 import java.time.LocalDateTime
@@ -144,6 +146,7 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
     val art = rememberCarArt()
     val sceneCard = rememberHomeBitmap("card") { loadSceneCard(it) }
     val backdropImage = rememberHomeBitmap(backdrop) { loadBackdrop(it, backdrop) }
+    val timeOfDay = rememberTimeOfDay(prefs.sceneLighting)
     DashboardContent(
         nav = nav, car = car, tele = tele, climate = climate, vehicle = vehicle,
         connected = discovery?.backend != null, layout = layout, lastResult = last,
@@ -151,7 +154,7 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
         onReset = { layout = DashLayout.default(HomePreset.byId(prefs.homeLayout)); DashLayout.reset(prefs) },
         art = art, sceneCard = sceneCard, backdrop = if (backdrop == HomeBackdrop.WAVES || backdropImage != null) backdrop else HomeBackdrop.NONE,
         backdropImage = backdropImage, dock = prefs.homeDock, driverOnRight = prefs.driverOnRight,
-        fuelLog = fuelLog,
+        fuelLog = fuelLog, timeOfDay = timeOfDay,
     )
 }
 
@@ -177,6 +180,8 @@ fun DashboardContent(
     dock: Boolean = true,
     driverOnRight: Boolean = true,
     fuelLog: FuelLog? = null,
+    /** The light the stage's truck scene is drawn in. */
+    timeOfDay: TimeOfDay = TimeOfDay.DAY,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -245,7 +250,7 @@ fun DashboardContent(
                         }
                         val onRemove: (Int) -> Unit = { idx -> updatePage(pageIndex) { pg -> pg.copy(widgets = pg.widgets.filterIndexed { j, _ -> j != idx }) } }
                         when (p.kind) {
-                            PageKind.STAGE -> StagePage(p, scope, art, editing, onReorder, onRemove,
+                            PageKind.STAGE -> StagePage(p, scope, art, timeOfDay, editing, onReorder, onRemove,
                                 Modifier.fillMaxSize().padding(end = if (dock) 4.dp else 20.dp, bottom = 4.dp))
                             else -> WidgetGrid(p.widgets, p.kind, scope, editing, onReorder, onRemove,
                                 Modifier.fillMaxSize().padding(start = 20.dp, end = if (dock) 8.dp else 20.dp))
@@ -410,7 +415,7 @@ private fun PageDots(count: Int, current: Int) {
 /** The truck fills the page; clock top-left, readings top-right, the page's widgets as a row of cards. */
 @Composable
 private fun StagePage(
-    page: DashPage, scope: DashScope, art: CarArt?, editing: Boolean,
+    page: DashPage, scope: DashScope, art: CarArt?, timeOfDay: TimeOfDay, editing: Boolean,
     onReorder: (Int, Int) -> Unit, onRemove: (Int) -> Unit, modifier: Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -422,7 +427,7 @@ private fun StagePage(
     // squared left edge: the scene runs to the edge of the screen
     Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
         Box(Modifier.fillMaxSize()) {
-            if (art != null) CarPhotoScene(state, art, Modifier.fillMaxSize())
+            if (art != null) CarPhotoScene(state, art, Modifier.fillMaxSize(), timeOfDay = timeOfDay)
             else CarScene(state, Modifier.fillMaxSize().padding(6.dp))
             StageClock(scope, Modifier.align(Alignment.TopStart).padding(start = 26.dp, top = 12.dp))
             Row(Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

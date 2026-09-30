@@ -83,6 +83,11 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat("car_xray", 1f)
         set(v) = sp.edit().putFloat("car_xray", v.coerceIn(0f, 1f)).apply()
 
+    /** Light on the truck scene: "auto" follows the clock (and sunrise where the unit has a fix), else a fixed "dawn"/"day"/"dusk"/"night". */
+    var sceneLighting: String
+        get() = sp.getString("scene_lighting", "auto") ?: "auto"
+        set(v) = sp.edit().putString("scene_lighting", v).apply()
+
     /**
      * Which side of the screen the driver's climate zone sits on. Until chosen in Options it's
      * guessed from the region: the Shark 6 is sold both right- and left-hand drive.

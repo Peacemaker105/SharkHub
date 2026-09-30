@@ -44,10 +44,55 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /** Which readings the scene calls out around the car. */
-enum class Lens(val label: String) { TYRES("Tyres"), INCLINE("Incline"), ENERGY("Energy") }
+enum class Lens(val label: String) { TYRES("Tyres"), INCLINE("Incline"), ENERGY("Electric system") }
+
+/**
+ * The electric-system readings as short callout strings. Every field is what the car reports
+ * (units still unverified on the road — see CarManager); a missing one shows as "—".
+ */
+internal object Electric {
+    private fun kw(v: Double) = when {
+        abs(v) < 0.05 -> "0 kW"
+        abs(v) >= 10 -> "%.0f kW".format(v)
+        else -> "%.1f kW".format(v)
+    }
+    private fun rpm(v: Double) = "${v.roundToInt()} rpm"
+
+    /** Charging with the engine running (there's no plug flag, so a charge while it turns is the engine's). */
+    fun engineCharging(t: Telemetry): Boolean = (t.engineRpm ?: 0.0) >= 50.0 && (t.chargePowerKw ?: 0.0) > 0.05
+
+    /** "60% · 12 kW out": the pack's flow is the charge power while charging, else the motors' draw (negative = regen, so "in"). */
+    fun battery(t: Telemetry): String {
+        val soc = t.socPercent?.let { "${it.toInt()}%" } ?: "—"
+        val charge = t.chargePowerKw
+        val motor = t.motorPowerKw
+        val flow = when {
+            charge != null && charge > 0.05 -> "${kw(charge)} in"
+            motor != null -> if (motor >= 0) "${kw(motor)} out" else "${kw(-motor)} in"
+            else -> null
+        }
+        return listOfNotNull(soc, flow).joinToString(" · ")
+    }
+
+    fun engine(t: Telemetry): String = when {
+        t.engineRpm == null && t.enginePowerKw == null -> "—"
+        (t.engineRpm ?: 0.0) < 50.0 && (t.enginePowerKw ?: 0.0) < 0.5 -> "Off"
+        else -> listOfNotNull(t.engineRpm?.let { rpm(it) }, t.enginePowerKw?.let { kw(it) }).joinToString(" · ")
+    }
+
+    fun motor(t: Telemetry): String =
+        listOfNotNull(t.motorPowerKw?.let { kw(it) }, t.motorRpm?.let { rpm(it) }).joinToString(" · ").ifEmpty { "—" }
+
+    fun charge(t: Telemetry): String {
+        val c = t.chargePowerKw ?: return "—"
+        if (c <= 0.05) return "Not charging"
+        return kw(c) + if (engineCharging(t)) " · engine charging" else ""
+    }
+}
 
 /** One immutable snapshot of everything the scene draws. */
 data class SceneState(
@@ -258,12 +303,11 @@ fun CarScene(state: SceneState, modifier: Modifier = Modifier) {
             }
             Lens.ENERGY -> {
                 val te = state.tele
-                callout(measurer, styles, cs, px(Offset(137f, 82f)), px(Offset(137f, 124f)), "Battery",
-                    (te.socPercent?.let { "${it.toInt()}%" } ?: "—") + (te.evRangeKm?.let { " · ${it.toInt()} km" } ?: ""), cs.primary)
-                callout(measurer, styles, cs, px(Offset(205f, 58f)), px(Offset(236f, -8f)), "Engine · fuel",
-                    (te.fuelPercent?.let { "${it.toInt()}%" } ?: "—") + (te.fuelRangeKm?.let { " · ${it.toInt()} km" } ?: ""), cs.secondary)
-                callout(measurer, styles, cs, px(Offset(50f, 81f)), px(Offset(40f, 124f)), "Powertrain",
-                    state.powertrain ?: "—", cs.tertiary)
+                callout(measurer, styles, cs, px(Offset(137f, 82f)), px(Offset(137f, 124f)), "Battery", Electric.battery(te), cs.primary)
+                callout(measurer, styles, cs, px(Offset(205f, 58f)), px(Offset(236f, -8f)), "Engine", Electric.engine(te), cs.secondary)
+                callout(measurer, styles, cs, px(Offset(168f, 66f)), px(Offset(236f, 124f)), "Motor", Electric.motor(te), cs.tertiary)
+                callout(measurer, styles, cs, px(Offset(50f, 81f)), px(Offset(40f, 124f)), "Charging", Electric.charge(te),
+                    if (Electric.engineCharging(te)) cs.secondary else cs.tertiary)
             }
         }
     }

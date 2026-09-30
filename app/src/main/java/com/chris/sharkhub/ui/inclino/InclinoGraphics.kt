@@ -41,26 +41,56 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.tan
 
 /** SIDE shows pitch; FRONT and REAR show roll, looking at either end of the truck. */
 enum class VehicleView { SIDE, FRONT, REAR }
 
+// Where the readouts turn amber, then red — a rough tip-over cue (real limits depend on load,
+// surface and your nerve).
+const val PITCH_CAUTION = 25f
+const val PITCH_DANGER = 35f
+const val ROLL_CAUTION = 20f
+const val ROLL_DANGER = 30f
+
+fun pitchCaption(deg: Float): String {
+    val grade = (tan(Math.toRadians(deg.toDouble())) * 100).roundToInt()
+    return when {
+        abs(deg) < 1f -> "Level"
+        deg > 0 -> "Nose up · ${abs(grade)}% grade"
+        else -> "Nose down · ${abs(grade)}% grade"
+    }
+}
+
+fun rollCaption(deg: Float): String = when {
+    abs(deg) < 1f -> "Level"
+    deg > 0 -> "Right side down"
+    else -> "Left side down"
+}
+
 /**
- * The cel-shaded Shark for the tilt drawings — a side view and a front view rendered from the 3D
- * model in grey tones with a dark outline, tinted in-app. Decoded once and kept; null when the
- * asset is missing, and the drawn ute takes over.
+ * A picture of the truck for the tilt drawing, with the row its tyres touch the ground on and the
+ * x it tips about — both in image pixels. The cut-out photos stand on their bottom edge and tip
+ * about their middle; a rendered view says where in its meta.
+ */
+class TiltArt(val image: ImageBitmap, val groundY: Float = image.height.toFloat(), val pivotX: Float = image.width / 2f)
+
+/**
+ * The cut-out Shark photos for the tilt drawings — a side view and each end. Decoded once and
+ * kept; null when the asset is missing, and the drawn ute takes over.
  */
 object InclinoArt {
-    private val cache = HashMap<VehicleView, ImageBitmap?>()
-    fun get(ctx: Context, view: VehicleView): ImageBitmap? = synchronized(cache) {
+    private val cache = HashMap<VehicleView, TiltArt?>()
+    fun get(ctx: Context, view: VehicleView): TiltArt? = synchronized(cache) {
         cache.getOrPut(view) {
             val name = when (view) {
                 VehicleView.SIDE -> "car/inclino_side.png"
                 VehicleView.FRONT -> "car/inclino_front.png"
                 VehicleView.REAR -> "car/inclino_rear.png"
             }
-            runCatching { ctx.assets.open(name).use { BitmapFactory.decodeStream(it) } }.getOrNull()?.asImageBitmap()
+            runCatching { ctx.assets.open(name).use { BitmapFactory.decodeStream(it) } }.getOrNull()?.asImageBitmap()?.let { TiltArt(it) }
         }
     }
 }
@@ -69,14 +99,15 @@ object InclinoArt {
  * The Shark tipping with the measured angle: side view (nose right) for pitch, front view for roll.
  * It pivots on its ground contact over a fixed dashed "level" line, with the tilted ground under
  * it in [accent]. Drawn in a 100x80 design box; the drawing is capped at ±45° so an extreme reading
- * still looks like a vehicle — the number beside it tells the truth. With the rendered art missing
- * the old line-drawn ute (rear view for roll) is used instead.
+ * still looks like a vehicle — the number beside it tells the truth. [art] is the picture to use —
+ * by default the cut-out photos; with them missing the old line-drawn ute (rear view for roll) is
+ * used instead.
  */
 @Composable
-fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modifier = Modifier) {
+fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modifier = Modifier, art: TiltArt? = null) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
-    val art = remember(view) { InclinoArt.get(ctx, view) }
+    val picture = remember(view, art) { art ?: InclinoArt.get(ctx, view) }
     val shapes = remember(view) { if (view == VehicleView.SIDE) SideUte() else RearUte() }
     Canvas(modifier) {
         val s = min(size.width / 100f, size.height / 80f)
@@ -84,7 +115,7 @@ fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modi
             translate((size.width - 100f * s) / 2f, (size.height - 80f * s) / 2f)
             scale(s, s, pivot = Offset.Zero)
         }) {
-            val ground = if (art != null) 64f else shapes.ground
+            val ground = if (picture != null) 64f else shapes.ground
             val pivot = Offset(50f, ground)
             drawLine(cs.onSurface.copy(alpha = 0.22f), Offset(-10f, pivot.y), Offset(110f, pivot.y), strokeWidth = 0.6f,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(2f, 2f)))
@@ -94,7 +125,7 @@ fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modi
             // left. Without its photo the front view falls back to the drawn rear ute, so it turns like one.
             val angle = when {
                 view == VehicleView.SIDE -> -shown
-                view == VehicleView.FRONT && art != null -> -shown
+                view == VehicleView.FRONT && picture != null -> -shown
                 else -> shown
             }
             rotate(angle, pivot) {
@@ -104,13 +135,16 @@ fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modi
                     topLeft = Offset(-30f, pivot.y), size = Size(160f, 12f),
                 )
                 drawLine(accent, Offset(-30f, pivot.y), Offset(130f, pivot.y), strokeWidth = 1.2f)
-                if (art != null) {
-                    // side view spans the box; the front view is narrower so it doesn't tower over it
+                if (picture != null) {
+                    val img = picture.image
+                    // side view spans the box; the end views are narrower so they don't tower over it
                     val w = if (view == VehicleView.SIDE) 100f else 66f
-                    val h = w * art.height / art.width
-                    // BYD's studio photos, cut out: drawn as they are, so the paint stays the paint
-                    drawImage(art, dstOffset = IntOffset((50f - w / 2f).toInt(), (ground - h + 1f).toInt()), dstSize = IntSize(w.toInt(), h.toInt()),
-                        filterQuality = FilterQuality.High)
+                    val k = w / img.width
+                    val h = img.height * k
+                    // placed so the picture's own ground line sits on ours and its pivot on the box centre;
+                    // the photos are drawn as they are, so the paint stays the paint
+                    drawImage(img, dstOffset = IntOffset((50f - picture.pivotX * k).roundToInt(), (ground - picture.groundY * k + 1f).roundToInt()),
+                        dstSize = IntSize(w.roundToInt(), h.roundToInt()), filterQuality = FilterQuality.High)
                 } else {
                     shapes.draw(this, cs)
                 }

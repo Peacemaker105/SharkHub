@@ -55,7 +55,16 @@ private use only):
   extras; the eight door-glass meshes are authored at the origin and placed from their door-pivot SRTs
   (`pa_rtl_placement.json`). Paint base colour (0.634, 0.741, 0.861), real colour applied at runtime by
   a paint state manager. Exact size: wheelbase 3.019 m → ×1.08 for real scale; hubs at x −1.558 (front)
-  / +1.461, y ±0.760, z 0.370, tyre dia 0.736.
+  / +1.461, y ±0.760, z 0.370, tyre dia 0.736. **Textures too:** the kzb's image files are PNGs in a
+  20-byte Kanzi wrapper or ASTC 4x4 GPU buffers; `byd_factory/astc4x4.py` (pure-Python ASTC LDR
+  decoder, written today, works first time) recovered BYD's wheel atlas (tread, sidewall, rim, brake,
+  calipers), the body / plastics / tub AO atlases, interior maps and the head unit's own 8192x1880
+  day / dusk / night panoramic backdrops. GPU textures are bottom-up; the decoder flips them upright.
+- **Private asset pack for the app:** `app/src/main/assets/car_private/` (gitignored) will hold layers
+  rendered from BYD's model; the app uses it when present and falls back to `assets/car/` (Meshy).
+  Two agents were started for this: one renders v2 layers + four time-of-day scenes + inclinometer
+  views from the BYD model (tools/model, car_private), one adapts the Kotlin (asset-set switching,
+  time of day, Incline/Electric lenses, snapshots). Their results are logged separately below.
 - `com.byd.dlc.drivingmode` (Rage Mode, 24 MB) also Kanzi, with per-mode **Lottie** animations (v5.8,
   60 fps: mud/sand/snow/rock/wade/crawl/mountain/…) + particles + sprite sequences. Not a video. Lottie
   files extracted to `byd_factory/DrivingMode_assets/`. Its scene files (`vehicle.kzb`,
@@ -70,6 +79,51 @@ enable its daemons (Diagnostics → Daemon storage), test whether a camera frame
 `tools/installer/{Installer.xaml,README.md}`. **Verified:** on the car as above; edits compile-clean
 (text/wording only). **Open:** push (public repo — ask); install OverDrive + camera test; fix the Menu
 tile; on-car SET tests + inclinometer zero + a drive for gauge scaling.
+
+### Kotlin agent — v2 asset set, scene lighting, Incline camera, Electric system lens (built + snapshots, NOT on the car)
+
+- **Asset-set switching** (`ui/overview/CarPhotoArt.kt`): `CarArt.load` tries `assets/car_private/v2_meta.json`
+  first and falls back to `car/v1_meta.json`; every file name is read from the meta (`"file"` on a layer,
+  wheel frame, time slot or view — PNG or WebP, whatever BitmapFactory decodes; an older meta without
+  `"file"` implies `<tag>_<layer>.png`). A v2 set that's missing or won't decode simply yields v1, so the
+  public build and Paparazzi never depend on `car_private/` existing. Consumed schema additions:
+  `times.{dawn,day,dusk,night}` each with `bg` (file, optional own crop) and/or `body` / `bodySolid` /
+  `drive` / `wheels.<corner>.frames[]` files, plus `grade {tint:[r,g,b], contrast, brightness}` for
+  the slots it doesn't supply; `views.{side,front,rear}` = `{file, ground (px or fraction), pivot:[x,y]}`;
+  `paint` is ignored. Wheels spin from each corner's own `hub` + frame list (frame count per corner,
+  no global `phases` dependency).
+- **Time of day** (`ui/overview/TimeOfDay.kt`): dawn/day/dusk/night from the clock; sunrise/sunset from
+  the sunrise equation when `LocationManager` has a last-known fix (permission-gated — granted via the
+  Bluetooth screen on API 30), else fixed local hours (06:30 / 18:00). Options → Home screen gets
+  **Scene lighting: Auto / Dawn / Day / Dusk / Night** (`Prefs.sceneLighting`). The plate and the
+  photographic layers crossfade over 900 ms on a change; a variant's own plate decodes off the main
+  thread while the shared one shows under its grade. With v1 (no `times`) built-in grades darken/warm
+  the plate, shell and wheels — the theme-tinted ghost and driveline are left alone.
+- **Incline lens is now a camera change** (`ui/overview/InclineView.kt`): the hero scene crossfades to
+  the flat side view tipping with pitch, with a Side / Rear (or Front, per the inclinometer's choice)
+  pill and pitch/roll readout cards (same captions, thresholds and `VehicleTilt` as the Inclinometer;
+  `pitchCaption`/`rollCaption` + thresholds moved to `ui/inclino/InclinoGraphics.kt`, `VehicleTilt` takes
+  a `TiltArt` with ground line + pivot so meta views place correctly; falls back to `car/inclino_*.png`).
+- **Energy → Electric system**: callouts on the battery / engine / front-motor / rear-motor anchors
+  read battery % + kW in/out, engine rpm + kW, motor kW + rpm, charge kW + "engine charging" (engine
+  turning while charge power > 0 — there is no plug flag); a four-line summary sits under the lens
+  label. All from existing `Telemetry` fields; "—" when absent; the wireframe fallback matches.
+- **Files:** `ui/overview/{CarPhotoArt.kt, CarScene.kt, OverviewScreen.kt, InclineView.kt (new),
+  TimeOfDay.kt (new)}`, `ui/inclino/InclinoGraphics.kt`, `ui/InclinometerScreen.kt`,
+  `ui/dash/DashboardScreen.kt` (stage page takes the time of day), `ui/OptionsScreen.kt`,
+  `data/Prefs.kt`, tests `ScreenSnapshots.kt` (+ overviewInclineRear, overviewElectric[Parked],
+  overviewDawn/Dusk/Night/NightShell, dashboardStageNight; overviewEnergy renamed) and
+  `TimeOfDayTest.kt` (new: Perth sunrise/sunset on 2026-10-01 within 12 min, phase windows, fixed-hours
+  and polar fallbacks).
+- **Verified:** `:app:compileDebugUnitTestKotlin`, `recordPaparazziDebug` (66 tests green: 50
+  snapshots, 4 TimeOfDay, 8 FuelLog, 4 close-ups) with every new PNG looked at, `:app:assembleDebug`
+  built. All with **v1 assets only** — `car_private/` had not landed, so the v2 path is exercised by
+  code review, not by a render. Unrelated snapshots re-recorded (live clock/date). **Not on the car.**
+- **Open:** confirm the render agent's meta matches the schema above (esp. `views` ground/pivot and
+  whether time variants carry their own body/wheel files); Paparazzi's layoutlib can't decode WebP, so
+  a WebP-only v2 will fall back to v1 in snapshots (fine on the unit); check roll direction of the
+  rear/front views and the 900 ms crossfade on the unit; `getLastKnownLocation` may be empty on the
+  head unit — then Auto uses the fixed hours.
 
 ## 2026-09-29 — Claude Code — Public on GitHub: fresh history, MIT, release v0.2.0
 

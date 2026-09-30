@@ -52,6 +52,7 @@ import com.chris.sharkhub.ui.gauges.Metric
 import com.chris.sharkhub.ui.overview.CarArt
 import com.chris.sharkhub.ui.overview.Lens
 import com.chris.sharkhub.ui.overview.OverviewContent
+import com.chris.sharkhub.ui.overview.TimeOfDay
 import com.chris.sharkhub.ui.theme.AmbientBackground
 import com.chris.sharkhub.ui.theme.SharkHubTheme
 import com.chris.sharkhub.ui.theme.StyleSpec
@@ -106,6 +107,11 @@ class ScreenSnapshots {
         motorRpm = 6400.0, engineRpm = 2100.0, instantFuelL100 = 6.8, instantElecKwh100 = 21.5, avgFuelL100 = 8.1, avgElecKwh100 = 19.2,
         enginePowerKw = 42.0, motorPowerKw = 65.0, coolantC = 88.0,
     )
+    /** The engine topping the pack up on the move — every electric-system callout has a value. */
+    private val electricTelemetry: Telemetry = gaugeTelemetry.copy(chargePowerKw = 3.2)
+
+    /** The rendered truck with everything a frame at [time] needs already decoded (the screen loads it asynchronously). */
+    private fun loadArt(time: TimeOfDay = TimeOfDay.DAY): CarArt? = CarArt.load(paparazzi.context)?.warm(paparazzi.context, time)
     private val sampleVehicle: Map<String, Int> = mapOf("driveMode" to 1, "roadSurface" to 1, "energyMode" to 3, "hud" to 1, "drl" to 1,
         "socSave" to 2, "socTarget" to 60)
     private val sportVehicle: Map<String, Int> = sampleVehicle + ("driveMode" to 3)
@@ -126,7 +132,7 @@ class ScreenSnapshots {
     @Composable
     private fun dashboardContent(
         page: Int = 0, tele: Telemetry = sampleTelemetry, preset: HomePreset = HomePreset.BENTO_STAGE,
-        backdrop: HomeBackdrop = HomeBackdrop.WAVES, dock: Boolean = true,
+        backdrop: HomeBackdrop = HomeBackdrop.WAVES, dock: Boolean = true, time: TimeOfDay = TimeOfDay.DAY,
     ): Unit {
         // Pictures load asynchronously on the device; a single-frame snapshot needs them up front.
         val ctx = paparazzi.context
@@ -134,9 +140,9 @@ class ScreenSnapshots {
             rememberNavController(), car, tele,
             ClimateState(driverTemp = 22f, passengerTemp = 21f, driverSeat = com.chris.sharkhub.car.SeatClimate(vent = 1)),
             sampleVehicle, connected = true, layout = DashLayout.default(preset), lastResult = null, onLayout = {}, onReset = {},
-            initialPage = page, art = remember { CarArt.load(ctx) }, sceneCard = remember { loadSceneCard(ctx) },
+            initialPage = page, art = remember { loadArt(time) }, sceneCard = remember { loadSceneCard(ctx) },
             backdrop = backdrop, backdropImage = remember(backdrop) { loadBackdrop(ctx, backdrop) }, dock = dock,
-            fuelLog = remember { sampleFuelLog() },
+            fuelLog = remember { sampleFuelLog() }, timeOfDay = time,
         )
     }
 
@@ -150,15 +156,18 @@ class ScreenSnapshots {
     @Composable
     private fun overviewContent(
         lens: Lens, tele: Telemetry = sampleTelemetry, att: Attitude = Attitude(4f, 0f), vehicle: Map<String, Int> = sampleVehicle,
+        time: TimeOfDay = TimeOfDay.DAY, rollView: VehicleView = VehicleView.FRONT, inclineRoll: Boolean = false,
     ): Unit {
         // The screen loads the rendered truck asynchronously; a single-frame snapshot needs it up front.
         OverviewContent(rememberNavController(), car, tele, vehicle, connected = true, att = att, heading = 309f,
-            lastResult = null, initialLens = lens, art = remember { CarArt.load(paparazzi.context) })
+            lastResult = null, initialLens = lens, art = remember { loadArt(time) }, rollView = rollView, timeOfDay = time,
+            initialInclineRoll = inclineRoll)
     }
 
     // ---- dashboard (boot screen) ----
     @Test fun dashboard() { shot { dashboardContent() } }
     @Test fun dashboardStage() { shot { dashboardContent(page = 1, tele = drivingTelemetry) } }
+    @Test fun dashboardStageNight() { shot { dashboardContent(page = 1, tele = drivingTelemetry, time = TimeOfDay.NIGHT) } }
     @Test fun dashboardPlain() { shot { dashboardContent(backdrop = HomeBackdrop.NONE, dock = false) } }
     @Test fun dashboardTruckBackdrop() { shot { dashboardContent(backdrop = HomeBackdrop.TRUCK) } }
     @Test fun dashboardHighwayBackdrop() { shot { dashboardContent(backdrop = HomeBackdrop.HIGHWAY) } }
@@ -168,19 +177,35 @@ class ScreenSnapshots {
     @Test fun dashboardDaylight() { shot(Themes.DAYLIGHT) { dashboardContent() } }
     @Test fun dashboardMintGlass() { shot(Themes.VN_MINT, Styles.GLASS) { dashboardContent(page = 1) } }
 
-    // ---- vehicle overview ----
+    // ---- vehicle overview: the three lenses ----
     @Test fun overviewTyres() { shot { overviewContent(Lens.TYRES) } }
     @Test fun overviewIncline() { shot { overviewContent(Lens.INCLINE, drivingTelemetry, Attitude(12.4f, -6.5f), mudVehicle) } }
-    @Test fun overviewEnergy() { shot { overviewContent(Lens.ENERGY, drivingTelemetry, Attitude(4f, 0f), sportVehicle) } }
+    @Test fun overviewInclineRear() {
+        shot { overviewContent(Lens.INCLINE, drivingTelemetry, Attitude(12.4f, -23.5f), mudVehicle, rollView = VehicleView.REAR, inclineRoll = true) }
+    }
+    @Test fun overviewElectric() { shot { overviewContent(Lens.ENERGY, electricTelemetry, Attitude(4f, 0f), sportVehicle) } }
+    @Test fun overviewElectricParked() { shot { overviewContent(Lens.ENERGY, sampleTelemetry.copy(engineRpm = 0.0, enginePowerKw = 0.0, motorPowerKw = 0.0)) } }
     @Test fun overviewGlass() { shot(style = Styles.GLASS) { overviewContent(Lens.TYRES, drivingTelemetry) } }
     @Test fun overviewShell() {
         shot {
             OverviewContent(rememberNavController(), car, sampleTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
-                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { CarArt.load(paparazzi.context) }, initialXray = 0.15f)
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { loadArt() }, initialXray = 0.15f)
         }
     }
     @Test fun overviewDaylight() { shot(Themes.DAYLIGHT) { overviewContent(Lens.ENERGY) } }
     @Test fun overviewFrost() { shot(style = Styles.FROST) { overviewContent(Lens.ENERGY, drivingTelemetry, Attitude(4f, 0f), sportVehicle) } }
+
+    // ---- vehicle overview: scene lighting (Options → Scene lighting overrides; Day is overviewTyres) ----
+    @Test fun overviewDawn() { shot { overviewContent(Lens.TYRES, drivingTelemetry, time = TimeOfDay.DAWN) } }
+    @Test fun overviewDusk() { shot { overviewContent(Lens.TYRES, drivingTelemetry, time = TimeOfDay.DUSK) } }
+    @Test fun overviewNight() { shot { overviewContent(Lens.TYRES, drivingTelemetry, time = TimeOfDay.NIGHT) } }
+    @Test fun overviewNightShell() {
+        shot {
+            OverviewContent(rememberNavController(), car, drivingTelemetry, sampleVehicle, connected = true, att = Attitude(4f, 0f),
+                heading = 309f, lastResult = null, initialLens = Lens.TYRES, art = remember { loadArt(TimeOfDay.NIGHT) }, initialXray = 0.15f,
+                timeOfDay = TimeOfDay.NIGHT)
+        }
+    }
 
     // ---- gauges ----
     @Test fun gauges() {
