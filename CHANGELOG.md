@@ -40,13 +40,27 @@ it (fontScale 1.0). Main Dashboard is fine. Fix pending. Details in HANDOVER.
 
 **BYD factory tech pulled** (to `C:\dev\byd_factory\`, kept out of the repo — BYD's proprietary assets,
 private use only):
-- `com.byd.mycar` (BydMyCar.apk, 350 MB) draws the 3D car with **Kanzi** (Rightware). Model =
-  `byd_car.kzb` (82 MB, "KZBF", per market) — compiled Kanzi binary, needs Kanzi Studio to open/export,
-  so not reusable as a mesh. Our Meshy/pre-rendered pipeline stays.
-- `com.byd.dlc.drivingmode` (Rage Mode, 24 MB) also Kanzi (`vehicle_terrain.kzb`), with per-mode
-  **Lottie** animations (v5.8, 60 fps: mud/sand/snow/rock/wade/crawl/mountain/…) + particles + sprite
-  sequences. Not a video. Lottie files extracted to `byd_factory/DrivingMode_assets/`. Option: our own
-  mode animations via `lottie-compose`.
+- `com.byd.mycar` (BydMyCar.apk, 350 MB) draws the 3D car with **Kanzi** (Rightware). It bundles one
+  model per asset folder: `MC` is a 7/8-seat people-mover, **`PA_RTL` is the Shark 6**, `UKE`/`UKE_RTL`
+  and `ST` are other models. Each is a `byd_car.kzb` (KZBF v3.3.7). **Decoded it:** `byd_factory/
+  kzb2glb.py` parses the kzb directory and every `/Mesh Data/*` blob (half-float interleaved vertices,
+  multi-cluster index lists, 4-byte alignment quirks), validates each mesh against its stored bounding
+  box, and writes per-part OBJ plus one GLB. The Shark comes out **151/151 parts, 303k triangles, in one
+  Z-up metric frame — no scene-graph decoding needed** (MC is mm / Y-up). Viewed in `byd_factory/
+  view.html` (`?hide=`, `?up=`, `?paint=`; served from that folder on :8765). Losslessly the model the
+  head unit renders; the 82 MB kzb is mostly env maps/shaders/UI. **Materials are BYD's own:** every
+  index cluster names its material (paint / chrome / window / glassLight / TirePA / plasticBlack_ao /
+  interior_*), exported as named glTF materials; lamp colours come from each node's Kanzi state
+  manager (LightPosition = red tail, lightTurn = amber, lightDay, lightFog, lightWhite) baked into glTF
+  extras; the eight door-glass meshes are authored at the origin and placed from their door-pivot SRTs
+  (`pa_rtl_placement.json`). Paint base colour (0.634, 0.741, 0.861), real colour applied at runtime by
+  a paint state manager. Exact size: wheelbase 3.019 m → ×1.08 for real scale; hubs at x −1.558 (front)
+  / +1.461, y ±0.760, z 0.370, tyre dia 0.736.
+- `com.byd.dlc.drivingmode` (Rage Mode, 24 MB) also Kanzi, with per-mode **Lottie** animations (v5.8,
+  60 fps: mud/sand/snow/rock/wade/crawl/mountain/…) + particles + sprite sequences. Not a video. Lottie
+  files extracted to `byd_factory/DrivingMode_assets/`. Its scene files (`vehicle.kzb`,
+  `vehicle_terrain.kzb`…) are **not inside the APK** — find them on the unit next time (`find / -name
+  "*.kzb"`). Option for us: our own mode animations via `lottie-compose`.
 
 **OverDrive Braveheart v51.6** downloaded to `byd_factory/` (88,177,260 B; the `braveheart` tag rolled
 past the old v51.2 in our notes). **Not installed** — car switched off first. Next on-car: install,

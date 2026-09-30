@@ -36,16 +36,27 @@ for what each session changed (add your own entry there before you finish).
   title priority / reduce pad / cap icon+value height. The main Dashboard (`ui/dash/`) is fine.
 - **BYD factory tech (pulled to `C:\dev\byd_factory\`, NOT in the repo — BYD's proprietary assets,
   private use only, never commit/redistribute):**
-  - **3D car = `com.byd.mycar` (BydMyCar.apk, 350 MB), built on Kanzi** (Rightware; `libkanzi.so`,
-    `libkzcore/kzui/kzcoreui`). The model is **`assets/MC/byd_car.kzb`** (82 MB, "KZBF" v3), one per
-    market (MC/PA_RTL/ST/UKE/UKE_RTL). Compiled Kanzi binary — needs Kanzi Studio + source to open or
-    export, so **not reusable as a mesh**. Keep our Meshy/pre-rendered pipeline.
-  - **Rage Mode = `com.byd.dlc.drivingmode` (DrivingMode.apk, 24 MB), also Kanzi** (`vehicle_terrain.kzb`,
-    `vehicle.kzb`, 30 fps) with the per-mode graphics as **Lottie** (v5.8, 60 fps: `mud/sand/snow/rock/`
-    `wade/crawl/mountain/tract/skid_chain/rsca/uturn/4L/…`), plus a particle system + sprite-sequence
-    plugin for spray/dust. **Not a video.** The Lottie files are extracted to
-    `byd_factory/DrivingMode_assets/`. Idea: do our own mode animations with `lottie-compose` (same
-    technique), our own art.
+  - **3D car = `com.byd.mycar` (BydMyCar.apk, 350 MB), built on Kanzi** (Rightware). One model per
+    asset folder: `MC` = 7/8-seat people-mover, **`PA_RTL` = the Shark 6** (confirmed visually),
+    `UKE`/`UKE_RTL`/`ST` = other models. **Extracted:** `byd_factory/kzb2glb.py <apk> assets/PA_RTL/
+    byd_car.kzb <outdir> 1.0` → `byd_car_pa_rtl.glb` (151/151 parts, 303k tris, one Z-up metric frame,
+    5.0 × 2.0 × 2.0 m) + `pa_rtl_mesh_obj/*.obj` + `pa_rtl_manifest.json`. View it: serve `byd_factory`
+    on :8765, open the pane with `preview_start {url: http://127.0.0.1:8765}`, then
+    `view.html?m=byd_car_pa_rtl.glb&up=z&hide=skyball,yuanguangdeng,juanguangdeng,Lamps_zhedang,
+    Others_Int_bg,Others_Ext_sump_int,Object001`. Part naming: `*_CarPaint`, `*window*`/`*Glass*`,
+    `*chome*`, `Lamps_N1..31`, `wheel_01_{LF,LR,RF,RR}` (tyre) + `_a`/`_jinshu` (rim)/`_kq` (caliper),
+    `Interior_*`, `HoodinEngine`, `Trunk_hood_*`. **Next:** proper materials (clearcoat paint in his
+    colour, glass, chrome), find the wheel hub centres from the wheel meshes' bboxes, then render it
+    through `tools/model/render.html` into the overview layers for a **private** build (never the
+    public repo). `UKE_RTL` would need the Kanzi scene-graph transforms (RootNode prefab: node =
+    name id, '' , metaclass idx, nprops, {prop id, value}…; prop 7 = SRT as 3+4+3 floats) — parked.
+  - **Rage Mode = `com.byd.dlc.drivingmode` (DrivingMode.apk, 24 MB), also Kanzi** (30 fps) with the
+    per-mode graphics as **Lottie** (v5.8, 60 fps: `mud/sand/snow/rock/wade/crawl/mountain/tract/
+    skid_chain/rsca/uturn/4L/…`), plus a particle system + sprite-sequence plugin. **Not a video.**
+    Lottie files are in `byd_factory/DrivingMode_assets/`. Its scene files (`vehicle.kzb`,
+    `vehicle_terrain.kzb`, `resource.kzb`, `main_project.kzb`) are **not in the APK** — next time on
+    adb: `find / -name "*.kzb" 2>/dev/null`, pull them (Chris expects just the Shark in there; the
+    terrain scene is useful too). Idea: our own mode animations with `lottie-compose`, our own art.
 - **OverDrive Braveheart v51.6** downloaded to `byd_factory/overdrive-braveheart-v51.6.apk`
   (88,177,260 B, from the rolling `braveheart` tag; the old v51.2 URL 404s now). **Not installed** —
   the car was switched off first. **Next on-car:** `adb install overdrive-braveheart-v51.6.apk`, open
