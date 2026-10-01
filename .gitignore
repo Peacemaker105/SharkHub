@@ -22,6 +22,9 @@ tools/model/node_modules/
 tools/model/package-lock.json
 __pycache__/
 
+# Agent worktrees the Claude desktop app creates inside the checkout — never part of the repo
+.claude/worktrees/
+
 design/model/stock_full.glb
 
 # Rejected photo model (#1) stays on disk only
