@@ -34,6 +34,14 @@ Package/applicationId: `com.chris.sharkhub`. Display name: "Shark Hub".
   .\gradlew.bat recordPaparazziDebug   # render every screen to app/src/test/snapshots/images/*.png
   .\gradlew.bat lintDebug
   ```
+- **Bake assets are generated:** `generateBakeAssets` (app/build.gradle.kts) copies `tools/model/render_v2.html`,
+  `probe.html` and `tools/model/lib/three/` into the APK's `assets/bake/` with the imports rewritten
+  to the vendored three.js — edit the originals in `tools/model`, never a copy. Two JVM tests are
+  gated on BYD's private files and skip elsewhere: `KanziDecoderTest` (needs `C:\dev\byd_factory\BydMyCar.apk`
+  or `-Dsharkhub.bydFactory=<dir>`) diffs the Kotlin GLBs/textures/HDR against the Python pipeline's;
+  `PackV2Test` (needs `byd_factory\render\` and a packed reference set, `-Dsharkhub.refPack=<dir>`)
+  diffs the Kotlin pack against pack_v2.py's pixel for pixel. The WebView render itself can't run on
+  the PC — only on the unit.
 - **Screen previews without a device:** `recordPaparazziDebug` renders each screen at head-unit size
   (1920×1080, hdpi) on the JVM. Look at the PNGs after any UI change. Record-only — Home shows a live
   clock, so don't wire `verifyPaparazzi` into anything. The tracked snapshots always render the public
@@ -69,7 +77,16 @@ app/src/main/java/com/chris/sharkhub/
 │   └── InstallResultReceiver.kt
 ├── ota/OtaUpdater.kt          # manifest check / download / verify-it's-us / install
 ├── data/Prefs.kt              # SharedPreferences (theme, OTA url, driving side, inclinometer zero)
+├── car/kanzi/                 # Kanzi (.kzb) decoder, pure Kotlin — reads BYD's own head-unit model ON THE CAR:
+│   ├── KzbFile / KzbMesh / KzbScene   #   container + dictionaries, mesh blobs, prefab scene graph (kzb_place.py port)
+│   ├── Kzb2Glb / Astc / KzbImages     #   GLB writer (kzb2glb.py port), ASTC 4x4 decoder, image wrappers → PNG / .hdr
+│   └── SharkDecoder / RageRules       #   the Shark recipe: PA body + Rage driveline + textures, the Rage→PA fit
+├── bake/                      # the on-car bake: BakeRunner (phases, state), BakeWebView (page + JS bridge),
+│                              #   PackV2 (pack_v2.py port), BakeFiles (paths, sources, stamp), AndroidImageIo (WebP)
+├── imaging/                   # RgbaImage, Png codec, PilOps (Pillow-exact filters/resize), ImageIo seam
+├── util/Json.kt               # tiny JSON reader/writer that also runs in plain JVM tests (org.json is a stub there)
 └── ui/
+    ├── bake/BakeScreen.kt      # Options → "Build the truck from this car": progress, log, live renderer preview, cancel
     ├── HomeScreen / ClimateScreen / InclinometerScreen / BluetoothScreen
     ├── SideloadScreen / ProbeScreen / OptionsScreen / UpdatesScreen
     ├── Components.kt           # Panel, Tile, ScreenHeader, ControlButton, StatusChip, SegmentedControl…
@@ -83,6 +100,8 @@ app/src/test/.../ScreenSnapshots.kt   # Paparazzi: one test per screen/state
 design/icon/                          # source artwork for the launcher icon
 tools/make_icons.py                   # regenerates launcher icon layers + in-app logo (needs Pillow)
 tools/live/prep_live_assets.py        # builds the gitignored assets/car_private/live/ pack for the Filament scene from C:\dev\byd_factory
+tools/model/render_v2.html, probe.html, lib/three/   # the layer renderer (PC and on-car), the WebGL probe, vendored three.js r160 (MIT)
+app/src/main/assets/bake/rigs/        # the render rig (our numbers and part names only, no BYD art); `bake/` page + lib are generated at build time
 tools/installer/                      # Windows first-install app (WPF exe via Windows' own csc) — its README
 installer/                            # Android phone first-install app (Gradle module :installer, dadb)
 LICENSE, THIRD_PARTY_NOTICES.md       # MIT for our code; Apache 2.0 libs listed, text in LICENSES/
@@ -104,10 +123,20 @@ Nav routes are in `MainActivity.Routes`. Home tiles are data-driven in `HomeScre
   and retints the whole app. Default is **Deep Sea** (matches the icon); VN Mint etc. stay. No
   per-screen color literals — keep it that way (graphics derive colours from the scheme; only the
   theme picker's previews use a ThemeSpec's own colours).
-- **The overview truck art loads `assets/car_private/v2_meta.json` first, then `assets/car/v1_meta.json`.**
-  `car_private/` is gitignored: it holds layers rendered from BYD's own head-unit model (private,
-  never published); the public build ships the Meshy `v1` set. A broken `v2` set is dropped silently
-  in favour of `v1`. Loader and schema: `ui/overview/CarPhotoArt.kt`.
+- **The overview truck art comes from three sources, in order: `filesDir/car_bake` (baked on the car),
+  `assets/car_private/v2_meta.json` (dev), `assets/car/v1_meta.json` (public).** A set that fails to
+  load is dropped silently in favour of the next. Loader and schema: `ui/overview/CarPhotoArt.kt`
+  (`ArtSource` = assets folder or on-disk folder).
+- **The public app ships none of BYD's art — owners' files stay on owners' cars.** BYD's 3D Shark lives
+  in the head unit's own `BydMyCar.apk` (Kanzi `.kzb`) and the x-ray driveline in DrivingMode's
+  `vehicle.kzb`. Instead of distributing renders of them, the app ships the *recipe*: `car/kanzi/`
+  decodes those files on the unit into `filesDir/bake/src`, `bake/BakeRunner` renders our own
+  `render_v2.html` in a WebView (same page, same look as the PC pipeline) and `bake/PackV2` packs the
+  layers into `filesDir/car_bake`, swapped in whole. `car_private/` (gitignored) remains the dev
+  shortcut; the Meshy `v1` set is the fallback for a unit without the My Car app. Never commit anything
+  produced from BYD's files (`car_private/`, `byd_factory`, `filesDir` outputs); the rig JSON and the
+  scripts are ours. `BakeRunner.RENDERER_VERSION` is the bake's version: bump it when the renderer or
+  the packer change the look and the app offers a rebuild.
 - **The live 3D truck (`ui/overview/live/`, Google Filament 1.74.0) is a prototype beside the plates, never a
   replacement.** It runs only when `assets/car_private/live/live_meta.json` is in the build (private BYD
   models, made by `tools/live/prep_live_assets.py`, gitignored) and Filament's native libraries load —
@@ -155,6 +184,15 @@ Nav routes are in `MainActivity.Routes`. Home tiles are data-driven in `HomeScre
 - **Cameras (sentry mode)** are gated on current firmware — parked as R&D. The 360 deep-link works.
 - **Renamed from "BydDash".** If you find any stray `byddash`/`BydDash`, it's a leftover — should be
   `sharkhub`/`Shark Hub` (or `SharkHub` for the Gradle project name, style and `SharkHubTheme`).
+- **Kotlin block comments nest:** a `/*` inside a KDoc (e.g. a glob like `/Mesh Data/*`) opens a nested
+  comment and swallows the rest of the file ("Unclosed comment"). Write `…` instead of `*`.
+- **`imaging/PilOps.kt` is Pillow's arithmetic, not an approximation** (truncating blends, 24-bit box-blur
+  weights, Lanczos fixed point, premultiplied resize). The JVM test proves the Kotlin pack is
+  pixel-identical to pack_v2.py's; "simplifying" a formula there breaks that.
+- **`addGeneratedSourceDirectory` relocates the task output:** AGP wires `generateBakeAssets`'s
+  `outputDir` to `app/build/generated/assets/generateBakeAssets/`, whatever the task set. Look there.
+- **The head unit's logcat drops info-level lines:** the bake logs everything at `Log.w` under
+  `SharkHubBake` (`adb logcat -s SharkHubBake:W`), including the page's console output.
 
 ## Extending
 - **Add a screen:** new composable in `ui/`, add a `Routes` const + `composable(...)` in

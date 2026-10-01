@@ -17,6 +17,69 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-02 — Claude Code (worktree agent) — Phase 1: the truck baked on the car from the owner's own model
+
+"Every Shark 6 owner gets the real truck, legally": the public app ships none of BYD's art. It ships
+the recipe — a decoder for the head unit's own Kanzi files, our renderer in a WebView, our packer —
+and each unit builds its dashboard truck from the model BYD put in its own My Car app. Three staged
+commits on branch `worktree-agent-ac4d1140a2176fa36`, each building.
+
+- **Kanzi decoder (`car/kanzi/`, pure Kotlin, stage A):** a port of the private Python tools
+  (`kzb2glb.py`, `kzb_place.py`, `astc4x4.py`, `rage_frame.py`): the KZBF container read at random
+  from the APK's entry (deflated in BYD's APK, so inflated once into the cache), every Mesh Data blob
+  (half/float attributes, 4-byte-aligned clusters, stored-bbox validation), the prefab scene graph
+  (strict + scanning record parse, bindings, prefab instances, BYD's pose-helper bindings, the Rage
+  pose overrides and orphan rules as Kotlin tables), GLB output with the same part / material names
+  and `extras.state`, an ASTC 4×4 LDR decoder, PNG passthrough, the grey AO maps (alpha when RGB is
+  black, else red), RGBA-half cube faces → Radiance `.hdr`, and the Rage→PA fit that writes
+  `byd_car_rage_drive_yup.glb` + `wheel_params_rage_drive.json`. PA door glass is placed by the
+  "authored about its pivot" rule (a part boxed at the origin whose node moves it > 10 cm) — the
+  eight translations the Python baked by hand; `RigNeeds.fromRig` reads the rig so only the textures
+  and env cubes the effective presets use are produced (panos stay raw `.astc` + JSON when no preset
+  uses them). `imaging/{RgbaImage,Png}` is a dependency-free PNG codec; `util/Json` a small JSON
+  reader/writer for code that must run in plain JVM tests.
+- **Bake (`bake/`, stage B):** `BakeRunner` — WebGL probe (`probe.html`, plain script) → decode →
+  render → pack, state as a `StateFlow`, cancel, W-level logcat `SharkHubBake`; `BakeWebView` serves
+  the APK's `bake/` assets and `filesDir/bake/src` at `https://bake.sharkhub/` (nothing from the
+  network) with the `window.sharkhub` bridge (`save`, `progress`, `done`, `failed`, `probe`);
+  `PackV2` is pack_v2.py step for step (grey + mask the driveline, WebP plates via Bitmap — PNG where
+  there is no WebP encoder — resized views, meta with the v1 key check, folder swap; an empty drive
+  layer when a unit has no Rage files); `imaging/PilOps` carries Pillow's exact arithmetic
+  (autocontrast, truncating blends, 3-pass box blur for the gaussian, unsharp mask, rank max, chops
+  multiply, Lanczos with premultiplied alpha). `render_v2.html` gained an async wrapper (no top-level
+  await for older WebViews), the `save()` bridge, `shadow=` and `fit=` params; three.js r160 is
+  vendored in `tools/model/lib/three/` (MIT, notice added) and `generateBakeAssets` copies page + lib
+  into the APK with local imports (the PC keeps the CDN import map). `CarArt.load` order is now
+  `filesDir/car_bake` → `assets/car_private` → `assets/car/v1` (`ArtSource`), `CarArtStore.reload`
+  after a bake.
+- **Setup UX (stage C):** `ui/bake/BakeScreen` (Options → "Build the truck from this car"): what the
+  unit has (My Car app, Rage files, last build), Build now / Rebuild / Remove, progress with layer
+  counts and elapsed time, the log, a live preview of the renderer; leaving the screen cancels. A
+  one-time dashboard offer when `com.byd.mycar` is present and no set is baked, and a rebuild offer
+  when `BakeRunner.RENDERER_VERSION` moved. `Prefs.bakeVersion / bakeOffered / bakeRebuildOffered`.
+- **Files:** new `car/kanzi/*`, `bake/*`, `imaging/*`, `util/Json.kt`, `ui/bake/BakeScreen.kt`,
+  `assets/bake/rigs/byd_shark6.rig.json`, `tools/model/probe.html`, `tools/model/lib/three/`,
+  tests `KanziDecoderTest`, `PackV2Test`; changed `tools/model/render_v2.html`, `app/build.gradle.kts`,
+  `MainActivity.kt`, `data/Prefs.kt`, `ui/overview/CarPhotoArt.kt`, `ui/OptionsScreen.kt`,
+  `ui/dash/DashboardScreen.kt`, `ScreenSnapshots.kt`, `THIRD_PARTY_NOTICES.md`, `CLAUDE.md`, `HANDOVER.md`.
+- **Verified:** `assembleDebug` builds (bake assets +0.38 MB compressed in the APK: three.module.js
+  330 KB, addons 45 KB, page 35 KB); `KanziDecoderTest` against `C:\dev\byd_factory`: 151/151 PA
+  parts and 9/9 driveline parts with identical triangle counts, materials and lamp states, boxes
+  within 1 mm (largest 0.0 mm on the driveline; the four glass-line outlines 1 cm apart because the
+  reference ignored their LayoutTransformation), all four PA textures and three Rage textures
+  pixel-identical, six showroom `.hdr` faces byte-identical, wheel params equal to 4 dp, fit scale
+  0.85720 / t (0.0037, 0.00128, 0) as the Python; `PackV2Test` against `render/` + the packed
+  reference: 0 meta differences, every compared layer (body, shells, wheels, lamps, the greyed +
+  masked driveline, the Lanczos-resized views, the day plate) pixel-identical; `recordPaparazziDebug`
+  passes — 79 tests, 61 snapshots (new: `bake`, the screen mid-render; `options` gained the row; the
+  clock-bearing dashboard / menu shots were re-recorded and reverted). **Nothing has run on the car**
+  — no install, by instruction.
+- **Open / next:** the on-car run (HANDOVER has the exact plan and the `SharkHubBake:W` lines to
+  read); then merge. Risks: the unit's WebView (modules + WebGL needed; version unknown), GPU memory at
+  1920×1400 + MSAA + 2048² VSM shadows, bake time, `toDataURL` speed; the inclinometer views and the
+  stage page's card are baked at 1920×1400 rather than 2400×1750, so they are slightly softer than
+  the PC pack.
+
 ## 2026-10-01 — Claude Code — Evening: live 3D parked, round 5 from the second drive, greener scenery
 
 - **Live 3D (Filament) parked** after its first on-car run (see the next entry and HANDOVER):

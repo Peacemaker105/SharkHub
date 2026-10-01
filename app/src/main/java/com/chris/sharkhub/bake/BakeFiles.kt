@@ -25,8 +25,8 @@ class BakeFiles(ctx: Context) {
     companion object {
         const val PACK_DIR = "car_bake"
         fun packDir(ctx: Context) = File(ctx.filesDir, PACK_DIR)
-        /** True when a complete baked set is in place (the loader still validates it). */
-        fun hasBake(ctx: Context) = File(packDir(ctx), "v2_meta.json").exists()
+        /** True when a complete baked set is in place (the loader still validates it); false wherever there is no files dir (the screenshot tests). */
+        fun hasBake(ctx: Context) = runCatching { File(packDir(ctx), "v2_meta.json").exists() }.getOrDefault(false)
     }
 }
 

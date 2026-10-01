@@ -276,11 +276,11 @@ object BakeRunner {
     private fun appVersionCode(ctx: Context): Int = runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).longVersionCode.toInt() }.getOrDefault(0)
 
     /** True when a baked set exists but was made by an older renderer than this build carries. */
-    fun needsRebuild(ctx: Context): Boolean {
+    fun needsRebuild(ctx: Context): Boolean = runCatching {
         if (!BakeFiles.hasBake(ctx)) return false
         val info = BakeInfo.read(BakeFiles(ctx).state) ?: return true
-        return info.rendererVersion < RENDERER_VERSION
-    }
+        info.rendererVersion < RENDERER_VERSION
+    }.getOrDefault(false)
 
     /** Removes the baked set and the decoded sources; the overview falls back to the bundled art. */
     fun remove(ctx: Context) {

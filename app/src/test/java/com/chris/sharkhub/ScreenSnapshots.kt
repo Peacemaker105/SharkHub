@@ -16,6 +16,12 @@ import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import com.android.resources.Density
 import com.android.resources.ScreenOrientation
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import com.chris.sharkhub.bake.BakePhase
+import com.chris.sharkhub.bake.BakeState
+import com.chris.sharkhub.ui.bake.BakeContent
+import com.chris.sharkhub.ui.bake.BakeSetup
 import com.chris.sharkhub.car.Airflow
 import com.chris.sharkhub.car.CarManager
 import com.chris.sharkhub.car.ClimateState
@@ -322,6 +328,28 @@ class ScreenSnapshots {
     }
     @Test fun sentry() = shot { SentryScreen(rememberNavController()) }
     @Test fun bluetooth() = shot { BluetoothScreen(rememberNavController()) }
+    /** The bake screen mid-render: what Options → "Build the truck from this car" shows while the WebView draws (a box stands in for it). */
+    @Test fun bake() = shot {
+        val state = BakeState(
+            phase = BakePhase.RENDER, message = "Rendered 61 of 142 layers", fraction = 0.15f + 0.7f * 61 / 142, layersDone = 61, layersTotal = 142,
+            probe = "{\"webgl\":true,\"webgl2\":true,\"renderer\":\"Adreno (TM) 640\",\"maxTexture\":16384,\"astc\":true}",
+            log = listOf(
+                "webgl probe: webgl2 true, astc true, max texture 16384",
+                "sources: /system/app/BydMyCar/BydMyCar.apk ; rage /system/app/DrivingMode/files/kanzi",
+                "assets/PA_RTL/byd_car.kzb: 1748 entries, 151 meshes, project 'byd_car'",
+                "decoded 151 meshes, 302913 triangles, 13.5 MB",
+                "Rage → PA fit: scale 0.85720, t [0.0037, 0.00128, 0.0]",
+                "decoded 9 meshes, 97829 triangles, 3.3 MB, skipped 41",
+                "render: https://bake.sharkhub/bake/render_v2.html?rig=/rig.json&auto=1&w=1920&h=1400",
+                "v2_wheel_FR_04 283x352 ok v2_wheel_FR_04.png 141213",
+            ),
+            startedAt = System.currentTimeMillis() - 187_000,
+        )
+        val setup = BakeSetup(hasModel = true, hasDriveline = true, last = null, needsRebuild = false)
+        BakeContent(rememberNavController(), state, setup, onStart = {}, onCancel = {}, onRemove = {}, preview = {
+            Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant))
+        })
+    }
     @Test fun sideload() = shot { SideloadScreen(rememberNavController()) }
     @Test fun probe() = shot { ProbeScreen(rememberNavController(), car) }
     @Test fun options() = shot { OptionsScreen(rememberNavController(), ThemeController(paparazzi.context)) }

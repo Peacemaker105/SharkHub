@@ -118,6 +118,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("bake_offered", false)
         set(v) = sp.edit().putBoolean("bake_offered", v).apply()
 
+    /** The renderer version a rebuild was last offered for (a new renderer asks once). */
+    var bakeRebuildOffered: Int
+        get() = sp.getInt("bake_rebuild_offered", 0)
+        set(v) = sp.edit().putInt("bake_rebuild_offered", v).apply()
+
     /** The live Filament truck (ui/overview/live) instead of the pre-rendered plates, where its assets are in the build. */
     var liveScene: Boolean
         get() = sp.getBoolean("live_scene", false)   // opt-in until the live look is tuned on the unit (first run: unlit truck)

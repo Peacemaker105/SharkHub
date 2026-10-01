@@ -96,7 +96,8 @@ fun BakeScreen(nav: NavController) {
 
 private fun readSetup(ctx: android.content.Context): BakeSetup {
     val sources = CarSources.find(ctx)
-    return BakeSetup(sources.hasModel, sources.rageDir != null, BakeInfo.read(BakeFiles(ctx).state), BakeRunner.needsRebuild(ctx))
+    val last = runCatching { BakeInfo.read(BakeFiles(ctx).state) }.getOrNull()
+    return BakeSetup(sources.hasModel, sources.rageDir != null, last, BakeRunner.needsRebuild(ctx))
 }
 
 @Composable
