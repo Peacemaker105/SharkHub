@@ -80,6 +80,12 @@ captures in the session). Chris's notes → this round (Agent B + render pass, 7
 - Next on-car: install `app-debug.apk` (98 MB, versionCode 2 — bump before a release), check the
   items above, flick indicators/headlights to confirm `getTurnLightState` / headlight codes, the
   inclinometer zero (read 15° parked), then OverDrive.
+- **Rage Mode chassis in (later the same morning):** BYD's own driveline from the Rage Mode scene
+  is now the x-ray `drive` layer of the private pack (placed from the kzb's prefab instances,
+  fitted to the PA truck to 2 mm; driveline-only GLB + `wheel_params_rage_drive.json` in
+  `C:\dev\byd_factory\`, rig `chassis` → `byd_car_rage_drive_yup.glb`, `wheelCut: false`). Callout
+  anchors come from the named parts. The Meshy chassis stays the public fallback. Details and the
+  energy-pipe animation findings: `byd_factory/README.md` → "Rage Mode placement".
 
 ## On-car session 2026-10-01 — 0.2.0 verified, BYD factory tech pulled
 - **0.2.0 runs on the car** and reads live telemetry: outside 14°, range ~470 km, odometer 21,883 km,

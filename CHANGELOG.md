@@ -17,6 +17,47 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-01 — Claude Code — BYD's Rage Mode chassis is now the x-ray driveline (private pack)
+
+Chris saw BYD's Rage Mode scene on the car ("a chassis with a ghost shell and rolling wheels") and
+asked for its chassis in ours. A background agent resolved the placement that was still open from
+the morning's decode, then the renderer was pointed at the result.
+
+- **Rage Mode placement resolved (private, `C:\dev\byd_factory\`):** the Kanzi prefab-instance
+  hierarchy of `vehicle.kzb` is now parsed (`kzb_place.py`, generic — also reproduces the PA
+  door-glass placement; `kzb2glb.py` grew `--placement/--frame/--select/--exclude/--out-name/
+  --textures` and still writes the PA GLB byte-for-byte). Wheels are placed by expression bindings
+  from per-mode pivot helpers (`VehicleNodePosHelper_<mode>` / `RotateHelper_<mode>`, rest pose
+  `_Space`, one steering snapshot zeroed); the body/driveline carry a +90° X that the AnimRoot
+  helper cancels. Outputs: `byd_car_rage_placed.glb` (all 50 parts, one frame), `rage_frame.json`
+  (wheelbase 3.522, tyre dia 0.870 — the model is 1.08× real, PA is 1/1.08×), `rage_to_pa.json` +
+  `byd_car_rage_in_pa.glb` (R·s·p + t with s = 0.8572; tyre-centre planes land on PA's hubs to
+  1.9 mm RMS; the shell and tyres match PA to 2 mm — same artwork), and **`byd_car_rage_drive.glb`
+  / `_yup.glb`** (driveline only: frame + suspension, shocks, engine, both e-motors, battery +
+  cells, tank, energy pipes; 9 parts, 98k tris, BYD's own pipe/cell/suspension textures) with
+  `wheel_params_rage_drive.json`. Energy-flow animation: the pipes use a plain tiled-texture shader
+  driven by a 1 unit/s `AD_AnimLoop`, switched by an `EnergyFlowType` state manager, but the kzb
+  holds no binding to the texture offset (direction/rate are app-side) — ours to choose later.
+  Motors, battery and one shell piece are referenced by no node and were placed by inference
+  (plausible, not scene-stated). Documented in that folder's README.
+- **Renderer (`tools/model/render_v2.html`, README):** `rig.chassis.wheelCut: false` keeps a
+  driveline that has no wheels whole (the Meshy cut used to run regardless); `chassisAnchors()`
+  takes the callout anchors from named parts (`Engine`, `ElectricalMachinery`, `_R`, `battery`)
+  when a driveline has them, else the old position regions. The private rig now points at the Rage
+  driveline (`flip: false`); the Meshy press-render chassis stays the public-build fallback.
+- **Files:** `tools/model/{render_v2.html, README.md}`, `CHANGELOG.md`, `HANDOVER.md`; private:
+  `byd_factory/{kzb_place.py, kzb2glb.py, rage_*.json, byd_car_rage_*.glb, README.md,
+  render_v2/byd_shark6.rig.json}`, the re-rendered `car_private/` pack (144 files / 25 MB).
+- **Verified:** pack rendered and swapped in; `preview_day_xray.png` inspected — ladder frame,
+  battery pack under the cab floor, engine and front motor ahead of the axle, rear motor on the
+  axle, all inside the BYD body, anchors on the parts. `assembleDebug` built (103 MB) and the private
+  snapshot set re-recorded (62 renders, copied to the gitignored `snapshots/private/`, tracked
+  public PNGs untouched): Electric lens shows the real driveline with the engine / motor / battery
+  callouts on their parts, Tyres and night lenses unchanged otherwise. **Not on the car.**
+- **Open / next:** pick a flow direction/rate for the pipes if we animate them (nothing in the
+  kzb); the Electric lens could highlight the named parts now that anchors are real; the live
+  renderer decision (the placed `byd_car_rage_in_pa.glb` is ready for it).
+
 ## 2026-10-01 — Claude Code — Round 3: round two seen on the car; tintable paint pack, wide plates, lamps out of the shells; cog sheet, fullscreen Vehicle page, zoom/pan, Menu tile fix
 
 Chris looked at the round-two debug build on the unit at 05:35 (night). It rendered: the BYD truck

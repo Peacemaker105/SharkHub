@@ -332,9 +332,10 @@ if (rig.chassis && rig.chassis.model) {
   cg.traverse((o) => { if (o.name && o.name.startsWith('wheel_')) o.visible = false; if (o.isMesh) { o.material.side = DS; o.castShadow = false; } });
   // The Meshy chassis keeps most of its own AT tyres inside the "body" mesh (split.js only took a thin
   // cylinder), and they sit exactly where the real wheels go. Drop every triangle inside a generous
-  // cylinder around each of its axles so the drive layer is chassis only.
+  // cylinder around each of its axles so the drive layer is chassis only. A driveline that carries
+  // no wheels (BYD's own Rage Mode chassis) sets `wheelCut: false` in the rig and keeps everything.
   const cutR = rig.chassis.wheelCutRadius || cp.radius * 2.3, zIn = (rig.chassis.wheelCutInner != null ? rig.chassis.wheelCutInner : cp.zInner * 1.15), zOut = cp.zOuter + 0.2;
-  cg.traverse((o) => {
+  if (rig.chassis.wheelCut !== false) cg.traverse((o) => {
     if (!o.isMesh || !o.visible || !o.geometry.index) return;
     const P = o.geometry.attributes.position, I = o.geometry.index.array, keep = [];
     for (let t = 0; t < I.length; t += 3) {
@@ -358,13 +359,30 @@ if (rig.chassis && rig.chassis.model) {
 }
 scene.add(drive);
 
-// World-space centroids of the chassis regions the callouts point at, from the aligned mesh itself:
-// engine = above the axle line ahead of the front axle, motors = around each axle, battery = the
-// floor pack between them (Meshy gives one unnamed mesh, so regions by position are the best we have).
+// World-space centroids of the chassis parts the callouts point at, from the aligned driveline itself.
+// A driveline with named parts (BYD's Rage Mode chassis: Engine, ElectricalMachinery / _R, battery)
+// gives them directly; the single unnamed Meshy mesh falls back to regions by position — engine =
+// above the axle line ahead of the front axle, motors = around each axle, battery = the floor pack.
 function chassisAnchors() {
-  let mesh = null; drive.traverse((o) => { if (!mesh && o.isMesh && o.visible) mesh = o; });
-  if (!mesh) return null;
   drive.updateMatrixWorld(true);
+  const meshes = []; drive.traverse((o) => { if (o.isMesh && o.visible) meshes.push(o); });
+  if (!meshes.length) return null;
+  const partName = (o) => ((o.name || (o.parent && o.parent.name) || '')).toLowerCase().replace(/_\d+$/, '');
+  const named = { engine: 'engine', battery: 'battery', frontMotor: 'electricalmachinery', rearMotor: 'electricalmachinery_r' };
+  const found = {};
+  for (const [k, n] of Object.entries(named)) found[k] = meshes.find((m) => partName(m) === n) || null;
+  if (Object.values(found).every(Boolean)) {
+    const out = {}, v = new THREE.Vector3();
+    for (const [k, m] of Object.entries(found)) {
+      const P = m.geometry.attributes.position; let x = 0, y = 0;
+      for (let i = 0; i < P.count; i++) { v.fromBufferAttribute(P, i).applyMatrix4(m.matrixWorld); x += v.x; y += v.y; }
+      out[k] = [x / P.count, y / P.count, 0];   // z = 0: callouts sit on the centreline like v1
+    }
+    return out;
+  }
+  return regionAnchors(meshes[0]);
+}
+function regionAnchors(mesh) {
   const P = mesh.geometry.attributes.position, I = mesh.geometry.index ? mesh.geometry.index.array : null;
   const v = new THREE.Vector3(), acc = { engine: [0, 0, 0, 0], battery: [0, 0, 0, 0], frontMotor: [0, 0, 0, 0], rearMotor: [0, 0, 0, 0] };
   const seen = new Uint8Array(P.count);

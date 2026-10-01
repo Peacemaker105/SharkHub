@@ -33,7 +33,7 @@ printed URL). `--no-extras` skips the lamp/blur pass. Rendering takes ~1 minute 
   "tubParts": ["_dou"], "skidParts": [...], "lampCoverParts": [...],
   "underbody": [ {"x0","x1","y0","y1","z"} ],   // dark plates if the floor is see-through (none needed for the Shark)
   "paint": { "linear": [r,g,b] | "hex": "…", "name": "…" },
-  "chassis": { "model": "/chassis_split.glb", "params": "/wheel_params_chassis.json", "flip": true },
+  "chassis": { "model": "/byd_car_rage_drive_yup.glb", "params": "/wheel_params_rage_drive.json", "flip": false, "wheelCut": false },
   "textures": { "base": "/textures/", "tyreMap": "...png", "ao": {"paint","plastic","tub"}, "flakeNormal": null,
                 "panos": { "day": {"file"}, "dusk": {…}, "night": {…} }, "panoDefaults": { "horizon": 0.25, "degrees": 360, "heading": 185, "vscale": 2.2 } },
   "scenery": { "centreLine": "double-yellow" | "single-yellow" | "dashed", "rail": true, "lake": "pano" | "plane" },
@@ -80,6 +80,15 @@ tinted the way the app does it (+ `preview_day_xray.png`).
   match part rules against every name a mesh carries.
 - Decoded GPU textures (ASTC/ETC) come out bottom-up; once flipped upright, three's default
   `flipY = true` matches the model's UVs. Check with the `debug('uv')` look before trusting it.
+- The driveline (`rig.chassis`) is any Y-up GLB plus a params JSON (`frontX/rearX/axleY/ground/
+  radius/zInner/zOuter`, its own units): it is scaled by wheelbase and dropped onto the front hub and
+  the ground. The private Shark build now uses BYD's own Rage Mode chassis (`byd_car_rage_drive_yup.glb`:
+  frame, suspension, engine, both e-motors, battery + cells, tank, energy pipes — placed from the
+  kzb's prefab instances and fitted to the PA truck to 2 mm; `flip: false`, `wheelCut: false`
+  because it carries no wheels). `chassisAnchors()` takes the callout anchors from the named parts
+  (`Engine`, `ElectricalMachinery`, `ElectricalMachinery_R`, `battery`) when they exist, else by
+  position regions. The Meshy press-render chassis (`chassis_split.glb`, `flip: true`) is the
+  public-build fallback.
 - The Meshy chassis GLB keeps most of its own tyres inside the `body` mesh: they are cut out of the
   index at load (`wheelCutRadius`), and the packer masks whatever else protrudes.
 - Near-side wheels are rendered with the body as a depth-only occluder, so the painted shell
