@@ -53,7 +53,11 @@ the morning's decode, then the renderer was pointed at the result.
   axle, all inside the BYD body, anchors on the parts. `assembleDebug` built (103 MB) and the private
   snapshot set re-recorded (62 renders, copied to the gitignored `snapshots/private/`, tracked
   public PNGs untouched): Electric lens shows the real driveline with the engine / motor / battery
-  callouts on their parts, Tyres and night lenses unchanged otherwise. **Not on the car.**
+  callouts on their parts, Tyres and night lenses unchanged otherwise. **Installed on the car
+  16:51** (adb, the hotspot had moved to 10.169.209.x — the car kept host .136): Home bento with the
+  new Vehicle card, the stage page, the fullscreen Vehicle page (status bar gone, floating back /
+  Rage / cog, plates all green at 40.6/44 psi) and the Menu (titles + captions back) all captured
+  live while Chris drove. The driveline itself wasn't captured — his x-ray slider was at Shell.
 - **Open / next:** pick a flow direction/rate for the pipes if we animate them (nothing in the
   kzb); the Electric lens could highlight the named parts now that anchors are real; the live
   renderer decision (the placed `byd_car_rage_in_pa.glb` is ready for it).
@@ -94,8 +98,11 @@ what came of them:
 - **Verified:** round two on the car (captures); round three compiled, 74 tests green with both the
   public and the private snapshot sets recorded and inspected (zoomed-out wide plate registers, night
   lamps come from the overlays only, Menu titles back, Vehicle card shows the truck, colour picker
-  changes the paint), APK built — **not installed** (the car was off). The day paint reads as a pale
-  steel blue in the bright day plate (clearcoat reflecting a bright sky); a darker hex deepens it.
+  changes the paint), APK built; **installed on the car at 16:51 together with the Rage driveline
+  pack (next entry) and verified live** — fullscreen Vehicle page, cog, Vehicle card, plates, Menu
+  tiles all as designed; pinch-zoom/pan, the cog's picker and "Use location" still to be tried by
+  hand. The day paint reads as a pale steel blue in the bright day plate (clearcoat reflecting a
+  bright sky); a darker hex deepens it.
 - **Open / next:** install and check on the unit (status-bar hide and fullscreen reach, zoom/pan feel,
   Menu, Vehicle card, plates, sweep, indicator/headlight codes, "Use location"); Chris's decision on
   the orbit — needs a live renderer (Filament 1.74.0 `ModelViewer` recommended; a 5-angle turntable

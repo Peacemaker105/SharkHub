@@ -51,10 +51,15 @@ gained `drl` (head = low beams only); halos fade with lens facing; day exposure 
 road pool 1.2. Meta extras otherwise as before: `times` (day PNG, dawn/dusk/night WebP plates, night
 wheels, `bgBlur`, `grade`), `views` (+ `paintBase`/`paintSpec` per view), `road.dashes=false`.
 
-## Round 3 (2026-10-01 ~05:30–06:30) — on-car look at round 2, then fixes: BUILT, NOT ON THE CAR
+## Round 3 (2026-10-01 ~05:30–06:30) — on-car look at round 2, then fixes: ON THE CAR since 16:51
 The round-two debug build ran on the unit (night scene, lamp overlays, Tyres plates all rendered;
-captures in the session). Chris's notes → this round (Agent B + render pass, 74 tests green,
-`assembleDebug` built ~06:17, **not installed** — the car was off by then):
+captures in the session). Chris's notes → this round (Agent B + render pass, 74 tests green). The
+round-3 build **plus the Rage driveline pack was installed at 16:51** (hotspot had moved to
+10.169.209.x; the car kept host .136) and verified live: fullscreen Vehicle page (BYD's status bar
+hides; the factory climate bar at the bottom stays), floating buttons, no Car pill, plates green at
+40.6/44 psi, Vehicle card with the new truck, Menu titles back. Not yet tried by hand: pinch-zoom /
+pan feel, the cog's colour picker and "Use location", the x-ray driveline on the unit (slider was at
+Shell), scene motion while driving (capture looked sharp at 81 km/h — check the setting).
 - Cog sheet on the Overview / stage page (`ui/overview/SceneSettings.kt`): car colour swatches +
   custom hex (`Prefs.paintColour`, default Deep Sea Blue `#2b4566` sampled from his head unit),
   Time of day Dynamic / Day / Dusk / Night (+ "Use location" when Dynamic has no fix), Scene motion.
