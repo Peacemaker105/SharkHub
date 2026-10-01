@@ -486,7 +486,7 @@ if (params.get('scene') !== '0') {
   const gy = g - 0.002;
   // near-side ground (camera side): muted dry grass and gravel with low grey-green scrub (tile ≈ 25 m, 41 px per metre)
   const earth = canvasTexture(1024, 1024, (gc, w, h) => {
-    grain(gc, w, h, [108, 100, 84], 24, 3);
+    grain(gc, w, h, [96, 104, 72], 24, 3);   // greener paddock under the scrub (Chris: "something greener, we don't have ice like that")
     const r = mulberry32(11);
     for (let i = 0; i < 160; i++) { const rr = 30 + r() * 90; gc.fillStyle = `rgba(${96 + r() * 30 | 0},${92 + r() * 22 | 0},${72 + r() * 16 | 0},0.18)`; gc.beginPath(); gc.ellipse(r() * w, r() * h, rr * 1.6, rr, r() * 3, 0, Math.PI * 2); gc.fill(); }
     for (let i = 0; i < 1100; i++) {
@@ -496,7 +496,7 @@ if (params.get('scene') !== '0') {
       gc.fillStyle = `rgba(${40 + k * 18 | 0},${46 + k * 16 | 0},${32 + k * 12 | 0},0.4)`;
       gc.beginPath(); gc.ellipse(r() * w, r() * h, rr * 0.5, rr * 0.35, r() * 3, 0, Math.PI * 2); gc.fill();
     }
-    for (let i = 0; i < 4000; i++) { gc.fillStyle = `rgba(${130 + r() * 40 | 0},${120 + r() * 34 | 0},${96 + r() * 28 | 0},${0.25 + r() * 0.3})`; gc.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 2); }
+    for (let i = 0; i < 4000; i++) { gc.fillStyle = `rgba(${118 + r() * 40 | 0},${128 + r() * 34 | 0},${84 + r() * 28 | 0},${0.25 + r() * 0.3})`; gc.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 2); }
   }, { repeat: [160, 160] });
   groundMats.plain = new THREE.MeshStandardMaterial({ map: earth, roughness: 1, metalness: 0 });
   // near side (camera side, −Z): scrub out to the horizon (fully fogged long before its edge)
@@ -513,10 +513,15 @@ if (params.get('scene') !== '0') {
     groundMats.lake = new THREE.MeshStandardMaterial({ color: 0x6f8698, roughness: 0.35, metalness: 0.0, envMapIntensity: 0.7 });
     const lake = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000), groundMats.lake);
     lake.rotation.x = -Math.PI / 2; lake.position.set(0, gy - 0.05, SCN.lakeZ + 1000); lake.receiveShadow = false; sceneGroup.add(lake);
+  } else if (SCN.far === 'plain') {
+    // no strip and no water: the paddock carries on to the ranges (fogged by the scene), else the
+    // sky dome shows below the horizon as a flat pale band
+    const far = new THREE.Mesh(new THREE.PlaneGeometry(4000, 2000), groundMats.plain);
+    far.rotation.x = -Math.PI / 2; far.position.set(0, gy - 0.004, SCN.lakeZ + 1000); far.receiveShadow = true; sceneGroup.add(far);
   }
   // sealed road: texture V runs across the road (sealedRight → sealedLeft), U along it; lines painted, wheel tracks polished
   const road = canvasTexture(2048, 512, (gc, w, h) => {
-    grain(gc, w, h, [60, 61, 64], 22, 5);
+    grain(gc, w, h, [60, 61, 64], 9, 5);   // a smoother seal: the app scrolls its own faint surface marks with the lines, and a strong static grain under them read as "the road isn't moving"
     const pxPerU = h / roadW; const r = mulberry32(17);
     for (let i = 0; i < 6000; i++) { gc.fillStyle = `rgba(${30 + r() * 30 | 0},${30 + r() * 30 | 0},${32 + r() * 30 | 0},${0.3 + r() * 0.4})`; gc.fillRect(r() * w, r() * h, 1 + r() * 3, 1 + r() * 2); }
     // polished wheel tracks in both lanes (lighter, smoother): lane centres at z = 0 (ours) and −laneW
@@ -587,8 +592,9 @@ function paintRidges(t) {
       const grd = gc.createLinearGradient(0, h * (base - L.amp), 0, h * base); grd.addColorStop(0, hex(colTop)); grd.addColorStop(1, hex(mix(col, hz, 0.5)));
       gc.fillStyle = grd; gc.fill();
     });
-    // haze band down to the bottom edge (the fogged plain meets it)
-    const bg = gc.createLinearGradient(0, h * base - 6, 0, h); bg.addColorStop(0, 'rgba(0,0,0,0)'); bg.addColorStop(0.08, hex(hz) + 'ff'); bg.addColorStop(1, hex(hz) + 'ff');
+    // a haze band under the ridge bases that fades out, so the plain (fogged by the scene itself)
+    // shows through instead of a solid fog-coloured strip hiding it (a photo strip used to sit here)
+    const bg = gc.createLinearGradient(0, h * base - 6, 0, h); bg.addColorStop(0, 'rgba(0,0,0,0)'); bg.addColorStop(0.06, hex(hz) + 'ff'); bg.addColorStop(0.4, hex(hz) + '00'); bg.addColorStop(1, hex(hz) + '00');
     gc.fillStyle = bg; gc.fillRect(0, h * base - 6, w, h - h * base + 6);
   });
   tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -648,7 +654,10 @@ const TIMES = Object.assign({
   night: { pano: 'night', sun: { az: 300, el: 38, color: 0x8ea3d6, intensity: 0.42 }, sky: { turbidity: 1.2, rayleigh: 0.3, mie: 0.0015, mieG: 0.7 }, skyGain: [0.045, 0.058, 0.10], exposure: 0.6, envIntensity: 0.26, groundEnv: 0.18,
            fog: { color: 0x0b0f16, near: 14, far: 240 }, hemi: { sky: 0x2a3550, ground: 0x08080a, intensity: 0.3 }, ridge: 0x0b0e15, ridgeLit: 0x1b2232,
            lamps: 'night', stars: true, pools: 1.0, grade: { tint: [0.72, 0.8, 1.0], contrast: 1.08, brightness: 0.42 } },
-}, rig.times || {});
+});
+// the rig overrides fields of a preset (e.g. `pano: null` to drop the photo strip, greener ridge
+// colours), not whole presets
+for (const [k, v] of Object.entries(rig.times || {})) TIMES[k] = mergeDeep(TIMES[k] || {}, v);
 let currentTime = null;
 async function applyTime(name) {
   const t = TIMES[name]; if (!t) throw new Error('no time ' + name);
@@ -695,7 +704,7 @@ let az = VIEW.az, el = VIEW.el, dist = VIEW.dist;
 function placeBillboards() {
   const r = sceneGroup.userData.ridge; if (!r) return;
   const dir = new THREE.Vector3().subVectors(centre, camera.position).setY(0).normalize();
-  const D = 800, w = 1800, h = 200, base = 0.62;
+  const D = 540, w = 1700, h = 330, base = 0.62;   // closer and taller since the strip went: rolling green ranges that actually rise above the paddock
   r.scale.set(w, h, 1); r.position.copy(centre).addScaledVector(dir, D);
   r.position.y = camera.position.y + 0.8 - h * (base - 0.5);   // the ridge bases (62 % up the texture) sit a hair above the horizon, which is at the camera's height
   r.lookAt(camera.position.x, r.position.y, camera.position.z);

@@ -133,7 +133,19 @@ Shell), scene motion while driving (capture looked sharp at 81 km/h — check th
 - Next on-car: install `app-debug.apk` (98 MB, versionCode 2 — bump before a release), check the
   items above, flick indicators/headlights to confirm `getTurnLightState` / headlight codes, the
   inclinometer zero (read 15° parked), then OverDrive.
-- **Round 4 (afternoon, from Chris's drive) — BUILT, NOT ON THE CAR:** steering ÷10 (the car
+- **Round 5 (evening, from the second drive) — BUILT ~21:05, NOT ON THE CAR (it was off):**
+  `app-debug.apk` carries round 5 (flashing debounced — brake/indicator/blur/plate-swap hysteresis;
+  dash streaks capped; two-finger pan/zoom classified; cog rows "Lamps on the truck" + "Scan line";
+  faint asphalt marks scrolling with the road; steering decoded 16-bit two's complement ÷10 and
+  sign-flipped — raw logged `Log.w("SharkHubCar")`; airflow figures lean back + demister glyph; cog
+  sheet scrolls; POWERTRAIN = EV/HEV) plus the **green scenery pack** (no snowy strip: procedural
+  green ranges, paddock to the horizon, Armco rail back, lighter asphalt grain, Deep Sea Blue at
+  specGain 0.35). The ranges look like cut-outs — Chris was asked whether to generate a panorama
+  strip (image connector, credits) or supply a photo; the rig's strip slot (`times.*.pano` +
+  `textures.panos`) takes either. First on-car checks: steering sign (`adb logcat -s SharkHubCar:W`
+  while turning; if mirrored, flip the one `-` in `CarManager.kt` steering), lamp settle, gesture
+  feel, asphalt-mark visibility, the scrolling sheet. Live 3D stays parked (opt-in, see top).
+- **Round 4 (afternoon, from Chris's drive) — on the car since 20:14:** steering ÷10 (the car
   reports tenths), Fuel card rows, ENVIRONMENT card → ELECTRIC SYSTEM (cards tap to their lens,
   heading moved to the readings row), a third left-swipe on Home opens the Vehicle page, stage
   Climate card with both zones' −/+ and seat heat/vent pills, bevelled SOC thumb, Climate seats

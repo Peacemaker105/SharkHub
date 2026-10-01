@@ -17,6 +17,40 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-01 — Claude Code — Evening: live 3D parked, round 5 from the second drive, greener scenery
+
+- **Live 3D (Filament) parked** after its first on-car run (see the next entry and HANDOVER):
+  `Prefs.liveScene` now defaults to **false** (opt-in from the cog's "Truck" row); the start-up
+  failure (`generateMipmaps` without `GEN_MIPMAPPABLE`) is fixed, a caught load failure no longer
+  trips the crash guard, and every live log line is `Log.w` because the head unit's logcat keeps no
+  info-level lines. The branch is merged into `main` (fast-forward), so the code is here but inert.
+- **Round 5 (app, parallel agent — its bullets sit in the round-two entry):** flashing traced to
+  un-debounced lamp states (brake at the 5 % edge, indicators re-sampled from an unverified code),
+  a stepped blur blend and a hard wide/normal plate swap at zoom 0.75 — all given hysteresis /
+  settle times; dash streaks capped so the centre line never goes solid; two-finger drag classified
+  (pan always, zoom only after 24 dp of spread change); cog rows "Lamps on the truck" and "Scan
+  line"; faint asphalt marks scrolling with the road; steering decoded as 16-bit two's complement,
+  ÷10, sign flipped (raw logged at W level for the on-car check); airflow figures lean back and
+  "Feet & screen" carries a demister glyph; the cog sheet scrolls; POWERTRAIN shows EV / HEV only.
+- **Scenery (`render_v2.html`, private rig):** Chris: "we don't have ice like that in Australia",
+  "I liked the guard rail", "make the road texture move". The rig can now override preset fields
+  (`rig.times` deep-merged) — `pano: null` drops BYD's snowy strip, the ridge billboard is drawn
+  closer/taller in eucalyptus greens (warm at dawn/dusk, dark at night) with its haze band fading
+  out, a `scenery.far = "plain"` paddock plane runs to the ranges (the sky showed below the horizon
+  without it), the Armco rail is back (`rail: true`, so the app's moving posts stand down), the
+  asphalt grain is much lighter (the app's moving marks carry the motion), the paddock is greener.
+  Five render passes; the ranges still read as flat cut-outs — a generated or photographed
+  panorama strip is the proper fix (Chris asked: generate via the image connector, or a photo).
+- **Files:** `tools/model/render_v2.html`, `data/Prefs.kt` (live default), the agent's round-5 files,
+  `CHANGELOG.md`, `HANDOVER.md`; private: `render_v2/byd_shark6.rig.json`, the re-rendered pack.
+- **Verified:** round 5 — 76 tests green, both snapshot sets inspected by the agent, `assembleDebug`
+  built (~21:05 with the green pack); scenery — packer previews inspected after each pass. On-car:
+  the plates-default build (before round 5) was installed and seen; round 5 + the green pack not
+  yet on the unit.
+- **Open / next:** install and check on the unit (steering sign via `logcat -s SharkHubCar:W`, lamp
+  settle, gesture feel, asphalt mark visibility, sheet scroll); backdrop decision; the tracked
+  orphan snapshot `dashboardDrivePage.png` can be `git rm`'d.
+
 ## 2026-10-01 — Claude Code (worktree agent) — Live 3D truck: Filament prototype beside the plates
 
 Chris wants to swipe around the truck ("a 3D camera pan"), which pre-rendered plates can't do. This
@@ -501,8 +535,37 @@ tile; on-car SET tests + inclinometer zero + a drive for gauge scaling.
   Arctic White #DCDFE3, Harbour Grey #9C9B96, Cosmos Black #121418, "Red" #8F3328 until its name is
   known; the extras are gone, the custom hex stays), and `paint.specGain` (0–1, default 1) from the
   meta scales the clearcoat layer's alpha in the scene and on the flat views.
+- **Round 5 (Chris's night drive in town, plates scene):** the "flashing every now and then" — found
+  three things that can flash and nothing else that can: the brake lamp followed `brakePct > 5` with no
+  hysteresis (a resting foot near 5 % toggles it at the 2 Hz poll), the indicator readbacks are a
+  sampled, unverified code that may follow the car's own flasher (so an on/off sample mixed with our
+  1.3 Hz blink), and the road-blur blend stepped with every speed sample; the wide↔plate swap could
+  also chatter on a saved zoom near 0.75 (his are 0.72 / 0.58) and faded the plate out before a wide
+  plate was decoded. Fixed in the plates scene: `rememberSettledLamps` (brake on ≥ 8 % / off ≤ 3 %,
+  indicators latched 1.5 s after an on sample, every lamp change held 150 ms), the blur blend eased
+  over 700 ms, the plate swap with hysteresis (wide in < 0.72, out > 0.78) and never with both plates
+  hidden, and two cog rows — **Lamps on the truck** On/Off (`Prefs.sceneLamps`) and **Scan line**
+  On/Off (`Prefs.sceneSweep`), both default On — so Chris can isolate it on the car (the sheet scrolls
+  now that it has six rows). Dash streaks are capped at 35 % of the gap and get stronger, not longer,
+  with speed, so the centre line never goes solid. Two-finger gestures classify: pan follows the
+  centroid, zoom only arms after the finger distance changes by > 24 dp and then runs continuously
+  from that distance (`SceneGestures.kt`). The asphalt moves with the lines: `RoadMarks`, 52 faint
+  perspective marks (tyre-polish patches in the background tone, tar seams, a few lighter wear
+  streaks at 4–8 % alpha) seeded once, laid in model units between the road's `edgeLeftZ/RightZ`
+  (new optional `road` keys, default centre ± 1.2), recycled every 60 units through the ground
+  homography under the dashes, fading in by 15 km/h and dead still at rest, plus a faint broken
+  line on the near verge; one reused Path, no per-frame allocations. Live scene (`ui/overview/live/`)
+  untouched; the two call sites only pass `lamps` / `sweep`. Addendum: steering is decoded as an
+  unsigned 16-bit two's-complement word (one direction came back as 65536 − x and hit the ±780
+  guard), ÷ 10, then sign-flipped so a left turn reads negative in the Wheels card, glyph, wireframe
+  and gauge, with the raw word logged at `Log.w("SharkHubCar")` on every change for the on-car read;
+  the climate airflow figures sit back in a seat (backrest + cushion behind them) and Feet & screen
+  carries the front-demister glyph instead of an arrow; the cog sheet pins its header, scrolls its
+  rows with a bottom fade and caps itself at the panel height − 24 dp; the Overview's POWERTRAIN row
+  shows EV and HEV only (Force EV / Fuel remain on the Vehicle controls screen); `road.railZ` in the
+  meta now switches the app's moving posts off (the plate's rail is static), on when it's null as v1.
 - **Files:** `ui/overview/{CarPhotoArt.kt, CarScene.kt, OverviewScreen.kt, RoadBlur.kt (new),
-  PaintColour.kt (new), SceneSettings.kt (new), TimeOfDay.kt, InclineView.kt}`, `ui/inclino/InclinoGraphics.kt`,
+  PaintColour.kt (new), SceneSettings.kt (new), SceneGestures.kt, TimeOfDay.kt, InclineView.kt}`, `ui/inclino/InclinoGraphics.kt`,
   `ui/climate/SeatGraphic.kt`, `car/CarManager.kt`,
   `ui/dash/DashWidgets.kt`, `ui/theme/Theme.kt`, `ui/dash/DashboardScreen.kt`, `ui/OptionsScreen.kt`,
   `data/Prefs.kt`, `car/CarManager.kt` (Telemetry), `car/VehicleControls.kt` (`LS_ON/OFF` public),

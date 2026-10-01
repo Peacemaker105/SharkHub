@@ -10,7 +10,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,7 +21,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -39,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,15 +67,20 @@ data class SceneSettings(
     val motion: Boolean = true,
     /** The live Filament truck rather than the pre-rendered plates, where the build has its assets. */
     val live: Boolean = true,
+    /** The plates truck's lit-lamp overlays, and its accent scan line. */
+    val lamps: Boolean = true,
+    val sweep: Boolean = true,
 ) {
     companion object {
-        fun from(prefs: Prefs) = SceneSettings(prefs.paintColour, prefs.sceneLighting, prefs.sceneMotion, prefs.liveScene)
+        fun from(prefs: Prefs) = SceneSettings(prefs.paintColour, prefs.sceneLighting, prefs.sceneMotion, prefs.liveScene,
+            lamps = prefs.sceneLamps, sweep = prefs.sceneSweep)
     }
 }
 
 /** Store the sheet's values (the screens' side of [SceneSettings.from]). */
 fun Prefs.save(s: SceneSettings) {
     paintColour = s.paint; sceneLighting = s.lighting; sceneMotion = s.motion; liveScene = s.live
+    sceneLamps = s.lamps; sceneSweep = s.sweep
 }
 
 /** One row of the scene sheet: its title, an optional line under it, and the control that edits the settings. Add rows here. */
@@ -95,6 +105,9 @@ val sceneSettingRows: List<SceneSettingRow> = listOf(
         if (liveOk) SegmentedControl(listOf("Plates", "Live 3D"), if (s.live) 1 else 0) { set(s.copy(live = it == 1)) }
         else Text("Live 3D needs the private asset pack in the build", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     },
+    // the plates truck's lamp overlays can be switched off, to see whether they are what flashes
+    SceneSettingRow("Lamps on the truck") { s, set -> SegmentedControl(listOf("Off", "On"), if (s.lamps) 1 else 0) { set(s.copy(lamps = it == 1)) } },
+    SceneSettingRow("Scan line") { s, set -> SegmentedControl(listOf("Off", "On"), if (s.sweep) 1 else 0) { set(s.copy(sweep = it == 1)) } },
 )
 
 /**
@@ -150,24 +163,36 @@ fun SceneSettingsCog(onClick: () -> Unit, modifier: Modifier = Modifier) = Frost
 fun BoxScope.SceneSettingsSheet(settings: SceneSettings, onSettings: (SceneSettings) -> Unit, onDismiss: () -> Unit, align: Alignment, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(LocalStyle.current.panelRadius)
-    Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } })
-    Column(
-        modifier.align(align).width(380.dp).clip(shape).background(cs.surface.copy(alpha = 0.88f))
-            .border(1.dp, cs.onSurface.copy(alpha = 0.16f), shape)
-            .pointerInput(Unit) { detectTapGestures { } }        // taps on the sheet stay on the sheet
-            .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("Scene", color = cs.primary)
-            Spacer(Modifier.weight(1f))
-            RoundIconButton(Icons.Rounded.Close, "Close", size = 34.dp, onClick = onDismiss)
-        }
-        sceneSettingRows.forEach { row ->
-            Column(Modifier.fillMaxWidth().padding(end = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(row.title, style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
-                row.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant) }
-                row.control(settings, onSettings)
+    // the scrim is the whole panel; it also tells the sheet how tall it may be
+    BoxWithConstraints(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
+        val scroll = rememberScrollState()
+        Column(
+            modifier.align(align).width(380.dp).heightIn(max = maxHeight - 24.dp).clip(shape).background(cs.surface.copy(alpha = 0.88f))
+                .border(1.dp, cs.onSurface.copy(alpha = 0.16f), shape)
+                .pointerInput(Unit) { detectTapGestures { } }        // taps on the sheet stay on the sheet
+                .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            // the header stays put; the rows scroll under it with a fade while there's more below
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("Scene", color = cs.primary)
+                Spacer(Modifier.weight(1f))
+                RoundIconButton(Icons.Rounded.Close, "Close", size = 34.dp, onClick = onDismiss)
+            }
+            Box(Modifier.weight(1f, fill = false)) {
+                Column(Modifier.verticalScroll(scroll).padding(end = 6.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    sceneSettingRows.forEach { row ->
+                        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(row.title, style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                            row.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant) }
+                            row.control(settings, onSettings)
+                        }
+                    }
+                }
+                if (scroll.canScrollForward) Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(32.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, cs.surface.copy(alpha = 0.95f))))
+                )
             }
         }
     }

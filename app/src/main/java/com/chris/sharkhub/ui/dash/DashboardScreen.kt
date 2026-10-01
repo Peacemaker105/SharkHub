@@ -506,7 +506,7 @@ private fun StagePage(
                 val plates: @Composable () -> Unit = {
                     when (st) {
                         is CarArtState.Ready -> CarPhotoScene(state, st.art, Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion, paint = paint,
-                            camera = camera, onCamera = onCamera)
+                            camera = camera, onCamera = onCamera, lamps = settings.lamps, sweep = settings.sweep)
                         CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
                         CarArtState.Missing -> CarScene(state, Modifier.fillMaxSize().padding(6.dp))
                     }

@@ -53,6 +53,7 @@ import com.chris.sharkhub.ui.inclino.VehicleView
 import com.chris.sharkhub.ui.theme.good
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -93,6 +94,10 @@ class RoadSpec(
     val unitsPerM: Float, val centerZ: Float, val dashLenU: Float, val dashPeriodU: Float, val lineWU: Float,
     val postSpacingU: Float, val postLeftZ: Float, val postRightZ: Float, val postHeightU: Float,
     val dashes: Boolean = true,
+    /** The sealed road's edges (z); the asphalt marks live between them, the verge line on the near (right) one. */
+    val edgeLeftZ: Float = centerZ + 1.2f, val edgeRightZ: Float = centerZ - 1.2f,
+    /** `road.railZ`: the plate has an Armco rail baked in at this z, so the app's moving posts stay off; null = no rail, posts move. */
+    val railZ: Float? = null,
 )
 
 /**
@@ -439,7 +444,10 @@ class CarArt(
                     RoadSpec(it.getDouble("unitsPerM").toFloat(), it.getDouble("centerZ").toFloat(), it.getDouble("dashLenU").toFloat(),
                         it.getDouble("dashPeriodU").toFloat(), it.getDouble("lineWU").toFloat(), it.getDouble("postSpacingU").toFloat(),
                         it.getDouble("postLeftZ").toFloat(), it.getDouble("postRightZ").toFloat(), it.getDouble("postHeightU").toFloat(),
-                        dashes = it.optBoolean("dashes", true))
+                        dashes = it.optBoolean("dashes", true),
+                        edgeLeftZ = it.optDouble("edgeLeftZ", it.getDouble("centerZ") + 1.2).toFloat(),
+                        edgeRightZ = it.optDouble("edgeRightZ", it.getDouble("centerZ") - 1.2).toFloat(),
+                        railZ = it.optDouble("railZ", Double.NaN).takeIf { v -> !v.isNaN() }?.toFloat())
                 },
                 times = times, views = views, bgBlur = bgBlur, lights = lights,
                 paintBase = optLayer(layers.opt("paintBase") ?: layers.opt("paint_base"), solidCrop),
@@ -676,10 +684,14 @@ fun CarPhotoScene(
     /** Where the user has pinched the scene to; [onCamera] non-null attaches the two-finger pinch / pan and reports the clamped result. */
     camera: SceneCamera = SceneCamera(),
     onCamera: ((SceneCamera) -> Unit)? = null,
+    /** The lit-lamp overlays and the accent scan line, each switchable from the cog sheet. */
+    lamps: Boolean = true,
+    sweep: Boolean = true,
 ) {
     val cs = MaterialTheme.colorScheme
     val measurer = rememberTextMeasurer()
     val styles = rememberCalloutStyle()
+    val roadMarks = remember(art) { RoadMarks(art.road) }
     val shellTint = remember(paint, art) { paint?.let { ShellTint(it, art.paintNeutral) } }
     // Under a ghosted shell the innards sit in a dark volume, not clear glass: the shell's silhouette flattened to a dark tone.
     val darkBase = remember(cs) { flatFilter(lerp(cs.surface, cs.background, 0.5f)) }
@@ -692,12 +704,22 @@ fun CarPhotoScene(
     val rollShown by animateFloatAsState(state.att.roll.coerceIn(-45f, 45f), tween(300), label = "roll")
     val driveGlow by animateFloatAsState(if (state.lens == Lens.ENERGY) 1f else 0.45f, tween(400), label = "drive")
     val look = rememberTimeLook(art, timeOfDay)
-    val lamps = remember(state.tele, state.vehicle, timeOfDay) { lampsFor(state.tele, state.vehicle, timeOfDay) }
+    val rawLamps = remember(state.tele, state.vehicle, timeOfDay) { lampsFor(state.tele, state.vehicle, timeOfDay) }
+    val lampsNow = rememberSettledLamps(rawLamps, state.tele.brakePct)
     // Zooming out past 0.75 swaps to the wide plate; without one the zoom can't go below the cover fit.
+    // The swap has hysteresis (in below 0.72, out above 0.78) so a saved zoom sitting on the line can't
+    // chatter, and the plate never fades out before a wide plate is actually decoded.
     val wideAvailable = look.cur.bgWide != null || art.bgWide != null
     val zoomRange = (if (wideAvailable) 0.5f else 1f)..1.2f
     val zoomNow = camera.zoom.coerceIn(zoomRange)
-    val wideBlend by animateFloatAsState(if (wideAvailable && zoomNow < 0.75f) 1f else 0f, tween(150), label = "wide")
+    var useWide by remember(art) { mutableStateOf(zoomNow < 0.75f) }
+    useWide = when {
+        !wideAvailable -> false
+        zoomNow < 0.72f -> true
+        zoomNow > 0.78f -> false
+        else -> useWide
+    }
+    val wideBlend by animateFloatAsState(if (useWide) 1f else 0f, tween(150), label = "wide")
     val plateRect = art.bgCrop?.let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) } ?: Rect(0f, 0f, art.canvas.width, art.canvas.height)
     val coverRect = (look.cur.bgWide ?: art.bgWide)?.crop?.let { Rect(it.x, it.y, it.x + it.w, it.y + it.h) } ?: plateRect
     val latestCamera by rememberUpdatedState(camera)
@@ -707,9 +729,10 @@ fun CarPhotoScene(
             onCamera(frame.transform(latestCamera, centroid, pan, zoom))
         }
     }
-    // the blurred plate comes in with speed: nothing at rest, most of it by 100 km/h
+    // the blurred plate comes in with speed: nothing at rest, most of it by 100 km/h — eased, so the
+    // half-second speed samples don't step it
     val speedFrac = (speedKph / 100f).coerceIn(0f, 1f)
-    val blurBlend = 0.85f * speedFrac * speedFrac * (3f - 2f * speedFrac)
+    val blurBlend by animateFloatAsState(0.85f * speedFrac * speedFrac * (3f - 2f * speedFrac), tween(700), label = "blur")
     val plateColours: List<Color?> = remember(state.tele.tyres, cs) { tyrePlateColours(state.tele.tyres, cs) }
 
     Canvas(modifier.then(gestures)) {
@@ -769,6 +792,8 @@ fun CarPhotoScene(
                         drawSlot(look, art.bgLayer, 1f - wideBlend, graded) { it.bg }
                         if (blurBlend > 0.01f) drawSlot(look, art.bgBlur, blurBlend * (1f - wideBlend), graded) { it.bgBlur }
                     }
+                    // the asphalt itself moves with the lines: faint marks sliding with the travel, under the dashes
+                    if (speedKph > 0.5f) roadMarks.draw(this, art, motion?.metres?.floatValue ?: 0f, cs, paintDim * (speedKph / 15f).coerceIn(0f, 1f))
                     drawRoadMarkings(art, motion?.metres?.floatValue ?: 0f, paintDim, speedFrac)
                 }
                 // keep the top readable for the stats and callouts
@@ -833,17 +858,17 @@ fun CarPhotoScene(
                 }
             }
             // lamps: light added over the body, so they glow whatever the shell's opacity
-            if (art.lights.isNotEmpty()) {
+            if (lamps && art.lights.isNotEmpty()) {
                 fun lamp(key: String, on: Boolean) { if (on) art.lights[key]?.let { drawLayer(it.image, it.crop, null, 1f, BlendMode.Plus) } }
-                lamp("head", lamps.head); lamp("drl", lamps.drl); lamp("tail", lamps.tail); lamp("brake", lamps.brake)
-                lamp("fog", lamps.fog); lamp("reverse", lamps.reverse)
-                lamp("turnL", lamps.turnL && blinkOn); lamp("turnR", lamps.turnR && blinkOn)
+                lamp("head", lampsNow.head); lamp("drl", lampsNow.drl); lamp("tail", lampsNow.tail); lamp("brake", lampsNow.brake)
+                lamp("fog", lampsNow.fog); lamp("reverse", lampsNow.reverse)
+                lamp("turnL", lampsNow.turnL && blinkOn); lamp("turnR", lampsNow.turnR && blinkOn)
             }
-            if (!card) {
+            if (!card && sweep) {
                 // light sweep the full height of the scene so it never looks like a still
-                val sweep = (t * 420f) % (art.canvas.width * 1.6f) - art.canvas.width * 0.3f
-                drawRect(Brush.horizontalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.10f), Color.Transparent), startX = sweep - 140f, endX = sweep + 140f),
-                    topLeft = Offset(sweep - 140f, 0f), size = Size(280f, art.canvas.height))
+                val sweepX = (t * 420f) % (art.canvas.width * 1.6f) - art.canvas.width * 0.3f
+                drawRect(Brush.horizontalGradient(listOf(Color.Transparent, accent.copy(alpha = 0.10f), Color.Transparent), startX = sweepX - 140f, endX = sweepX + 140f),
+                    topLeft = Offset(sweepX - 140f, 0f), size = Size(280f, art.canvas.height))
             }
         }
         if (incline) {
@@ -926,7 +951,11 @@ private fun DrawScope.drawRoadMarkings(art: CarArt, metres: Float, dim: Float, s
     // the truck drives toward -X, so the world slides toward +X
     val dashPhase = units % road.dashPeriodU
     val hw = road.lineWU / 2f
-    val streak = road.dashPeriodU * 0.9f * speedFrac
+    // The streak is short — never more than 35 % of the gap, so a dash stays a dash at any speed —
+    // and speed shows in how strongly it fades in, not in its length.
+    val gap = (road.dashPeriodU - road.dashLenU).coerceAtLeast(0f)
+    val streak = 0.35f * gap * (speedFrac * 3f).coerceIn(0f, 1f)
+    val streakAlpha = 0.35f + 0.65f * speedFrac
     val paint = Color(0xFFEBEBE4)
     var x = -80f + dashPhase - road.dashPeriodU
     val path = Path()
@@ -943,10 +972,12 @@ private fun DrawScope.drawRoadMarkings(art: CarArt, metres: Float, dim: Float, s
         if (streak > 0.02f && quad(x + road.dashLenU, x + road.dashLenU + streak)) {
             val from = art.ground(x + road.dashLenU, road.centerZ)!!
             val to = art.ground(x + road.dashLenU + streak, road.centerZ)!!
-            drawPath(path, Brush.linearGradient(listOf(paint.copy(alpha = alpha), paint.copy(alpha = 0f)), start = from, end = to))
+            drawPath(path, Brush.linearGradient(listOf(paint.copy(alpha = alpha * streakAlpha), paint.copy(alpha = 0f)), start = from, end = to))
         }
         x += road.dashPeriodU
     }
+    // the moving guide posts only where the plate has no rail of its own (v1, and v2 without railZ)
+    if (road.railZ != null) return
     val postPhase = units % road.postSpacingU
     for (z in listOf(road.postLeftZ, road.postRightZ)) {
         var px = -80f + postPhase - road.postSpacingU
@@ -962,6 +993,95 @@ private fun DrawScope.drawRoadMarkings(art: CarArt, metres: Float, dim: Float, s
                 }
             }
             px += road.postSpacingU
+        }
+    }
+}
+
+/**
+ * The lamp overlays, steadied. The pedal sensor jitters around the 5 % line when a foot rests on
+ * it, so the brake lamp has hysteresis (on from 8 %, off under 3 %); the indicator readbacks are a
+ * sampled, unverified code that may follow the car's own flasher, so an "on" sample latches the
+ * indicator for 1.5 s and our 1.3 Hz blink does the flashing; and any change is held back 150 ms,
+ * so a blip shorter than that never reaches the screen.
+ */
+@Composable
+private fun rememberSettledLamps(raw: Lamps, brakePct: Double?): Lamps {
+    var brake by remember { mutableStateOf(raw.brake) }
+    val pct = brakePct ?: 0.0
+    brake = when { pct >= 8.0 -> true; pct <= 3.0 -> false; else -> brake }
+    var turnL by remember { mutableStateOf(false) }
+    var turnR by remember { mutableStateOf(false) }
+    LaunchedEffect(raw.turnL) { if (raw.turnL) turnL = true else { delay(1500); turnL = false } }
+    LaunchedEffect(raw.turnR) { if (raw.turnR) turnR = true else { delay(1500); turnR = false } }
+    val target = raw.copy(brake = brake, turnL = turnL, turnR = turnR)
+    var settled by remember { mutableStateOf(target) }
+    LaunchedEffect(target) { delay(150); settled = target }
+    return settled
+}
+
+/**
+ * A sparse field of faint asphalt marks — tyre-polish patches, tar seams, a few lighter wear
+ * streaks — seeded once, laid along the road in model units and recycled every [period] units,
+ * drawn through the ground homography under the dashes so the surface slides with the lines. Plus
+ * a very faint broken line on the near verge. One Path is reused; nothing else is allocated per frame.
+ */
+private class RoadMarks(road: RoadSpec?) {
+    private class Mark(val x: Float, val z: Float, val len: Float, val wid: Float, val alpha: Float, val lighter: Boolean,
+                       val jitter: FloatArray)
+    private val period = 60f
+    private val path = Path()
+    private val marks: List<Mark> = if (road == null) emptyList() else {
+        val rnd = java.util.Random(7L)
+        val left = road.edgeLeftZ; val right = road.edgeRightZ
+        List(52) {
+            val lighter = rnd.nextFloat() < 0.15f
+            // keep clear of the centre line and the edges
+            val z = right + 0.12f + rnd.nextFloat() * (left - right - 0.24f)
+            val zz = if (abs(z - road.centerZ) < road.lineWU * 2.5f) z + road.lineWU * 3f else z
+            Mark(
+                x = rnd.nextFloat() * period, z = zz,
+                len = if (lighter) 4f + rnd.nextFloat() * 5f else 0.3f + rnd.nextFloat() * 2.2f,
+                wid = if (lighter) 0.15f + rnd.nextFloat() * 0.1f else 0.08f + rnd.nextFloat() * 0.27f,
+                alpha = if (lighter) 0.05f else 0.04f + rnd.nextFloat() * 0.04f,
+                lighter = lighter,
+                jitter = FloatArray(4) { (rnd.nextFloat() - 0.5f) * 0.3f },
+            )
+        }
+    }
+
+    fun draw(scope: DrawScope, art: CarArt, metres: Float, cs: androidx.compose.material3.ColorScheme, gain: Float) = with(scope) {
+        val road = art.road ?: return
+        if (marks.isEmpty() || art.groundH == null || gain <= 0.01f) return
+        val units = metres * road.unitsPerM
+        val phase = units % period
+        // the near windows only — far marks are too small to matter
+        var base = -40f - period
+        while (base < 50f) {
+            for (m in marks) {
+                val x0 = base + (m.x + phase) % period
+                if (x0 < -40f || x0 > 50f) continue
+                val a = art.ground(x0 + m.jitter[0], m.z - m.wid / 2f + m.jitter[1] * m.wid)
+                val b = art.ground(x0 + m.len, m.z - m.wid / 2f + m.jitter[2] * m.wid)
+                val c = art.ground(x0 + m.len + m.jitter[3], m.z + m.wid / 2f)
+                val d = art.ground(x0, m.z + m.wid / 2f)
+                if (a == null || b == null || c == null || d == null) continue
+                path.reset(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); path.lineTo(c.x, c.y); path.lineTo(d.x, d.y); path.close()
+                val fade = (1f - abs(x0) / 60f).coerceIn(0.2f, 1f) * gain
+                drawPath(path, (if (m.lighter) cs.onSurface else cs.background).copy(alpha = m.alpha * fade))
+            }
+            base += period
+        }
+        // the near verge: a faint broken line at the sealed edge, sliding with the rest
+        val vp = units % 4f
+        var x = -60f + vp - 4f
+        while (x < 60f) {
+            val a = art.ground(x, road.edgeRightZ - 0.02f); val b = art.ground(x + 2f, road.edgeRightZ - 0.02f)
+            val c = art.ground(x + 2f, road.edgeRightZ + 0.02f); val d = art.ground(x, road.edgeRightZ + 0.02f)
+            if (a != null && b != null && c != null && d != null) {
+                path.reset(); path.moveTo(a.x, a.y); path.lineTo(b.x, b.y); path.lineTo(c.x, c.y); path.lineTo(d.x, d.y); path.close()
+                drawPath(path, cs.onSurface.copy(alpha = 0.06f * (1f - abs(x) / 60f).coerceAtLeast(0.15f) * gain))
+            }
+            x += 4f
         }
     }
 }

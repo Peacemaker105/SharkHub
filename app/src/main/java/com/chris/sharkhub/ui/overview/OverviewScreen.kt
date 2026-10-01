@@ -208,7 +208,8 @@ fun OverviewContent(
     var confirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     val drive = remember { VehicleControls.selector("driveMode") }
     val road = remember { VehicleControls.selector("roadSurface") }
-    val power = remember { VehicleControls.selector("energyMode") }
+    // only the two modes Chris uses on this page; Force EV / Fuel stay on the Vehicle controls screen
+    val power = remember { VehicleControls.selector("energyMode")?.let { p -> p.copy(options = p.options.filter { it.label == "EV" || it.label == "HEV" }) } }
     fun current(sel: VehicleSelector?): SelectorOption? = sel?.optionFor(vehicle[sel.id])
     val driveNow = current(drive)
     val powerNow = current(power)
@@ -290,7 +291,8 @@ private fun ScenePanel(
                 val plates: @Composable () -> Unit = {
                     when (st) {
                         is CarArtState.Ready -> CarPhotoScene(scene, st.art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay,
-                            sceneMotion = sceneMotion, paint = paint, camera = camera, onCamera = onCamera)
+                            sceneMotion = sceneMotion, paint = paint, camera = camera, onCamera = onCamera,
+                            lamps = settings.lamps, sweep = settings.sweep)
                         CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
                         CarArtState.Missing -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
                     }

@@ -75,25 +75,32 @@ object ShIcons {
         Airflow.FEET_SCREEN -> airflowFeetScreen
     }
 
-    /** Seated figure facing left (towards the dash vents) with arrows for the active outlets. */
+    /**
+     * A figure sitting back in a seat, facing left (towards the dash vents), with arrows for the
+     * active outlets. The screen outlet is the front-demister glyph (the FRONT button's icon,
+     * small), not an arrow.
+     */
     private fun airflowIcon(name: String, face: Boolean, feet: Boolean, screen: Boolean) = lineIcon(name) {
-        // head
-        moveTo(17.2f, 4.4f); arcTo(2f, 2f, 0f, true, true, 13.2f, 4.4f); arcTo(2f, 2f, 0f, true, true, 17.2f, 4.4f)
+        // the reclined backrest and the cushion behind the figure
+        moveTo(20.6f, 6.2f); lineTo(18.6f, 16.2f); lineTo(8.6f, 16.2f)
+        // head, leaning back with the backrest
+        moveTo(19.6f, 5.2f); arcTo(1.9f, 1.9f, 0f, true, true, 15.8f, 5.2f); arcTo(1.9f, 1.9f, 0f, true, true, 19.6f, 5.2f)
         close()
-        // torso → thigh → shin
-        moveTo(15.6f, 8.2f); lineTo(16.9f, 14.2f); lineTo(11.4f, 14.2f); lineTo(10.4f, 20.4f)
+        // torso leaning back into the seat → thigh forward → shin down
+        moveTo(17.0f, 7.8f); lineTo(14.6f, 14.0f); lineTo(10.0f, 14.0f); lineTo(9.6f, 20.4f)
         if (face) {
-            moveTo(2.8f, 7.6f); lineTo(10.4f, 7.6f)
-            moveTo(8.5f, 5.8f); lineTo(10.4f, 7.6f); lineTo(8.5f, 9.4f)
+            moveTo(2.8f, 7.6f); lineTo(12.6f, 7.6f)
+            moveTo(10.7f, 5.8f); lineTo(12.6f, 7.6f); lineTo(10.7f, 9.4f)
         }
         if (feet) {
             moveTo(2.8f, 18.6f); lineTo(7.4f, 18.6f)
             moveTo(5.7f, 16.9f); lineTo(7.4f, 18.6f); lineTo(5.7f, 20.3f)
         }
         if (screen) {
-            moveTo(1.8f, 6.2f); lineTo(6.2f, 1.6f)           // windscreen
-            moveTo(9.6f, 10.2f); lineTo(5.6f, 6.2f)          // air up onto it
-            moveTo(5.4f, 8.7f); lineTo(5.6f, 6.2f); lineTo(8.1f, 6.4f)
+            // the front demister, small: windscreen with heat waves rising inside it
+            moveTo(1.4f, 5.6f); quadTo(5.6f, 3.2f, 9.8f, 5.6f); lineTo(8.8f, 9.8f)
+            quadTo(5.6f, 8.6f, 2.4f, 9.8f); close()
+            wave(4.3f, 8.9f, 5.9f, amp = 0.6f); wave(6.9f, 8.9f, 5.9f, amp = 0.6f)
         }
     }
 

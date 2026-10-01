@@ -403,6 +403,9 @@ class CarManager(private val appContext: Context) {
 
     // ---- Telemetry ----
 
+    /** The last steering word the car gave, so only changes are logged. */
+    @Volatile private var lastSteerRaw: Double? = null
+
     /** Live telemetry snapshot; each field is best-effort. Blocking. */
     fun readTelemetry(): Telemetry {
         val b = backend ?: return Telemetry()
@@ -445,8 +448,17 @@ class CarManager(private val appContext: Context) {
                 Call("getFuelAccelerateDeepness", device = "speed"))?.takeIf { it in 0.0..100.0 },
             brakePct = d(Call("getBrakeDeepness", device = "speed"))?.takeIf { it in 0.0..100.0 },
             // BODYWORK_CMD_STEERING_WHEEL_ANGEL = 1. The car reports TENTHS of a degree ("32°" showed on a
-            // straight highway and "14°" parked on 2026-10-01 before this divide); ±780° lock to lock once in degrees.
-            steeringDeg = d(Call("getSteeringWheelValue", 1, device = "bodywork"))?.div(10.0)?.takeIf { Math.abs(it) <= 780.0 },
+            // straight highway and "14°" parked on 2026-10-01 before the divide), as an unsigned 16-bit
+            // word: one direction came back as 65536 − x and fell to the ±780 guard ("turning the wheel
+            // one way goes the wrong way, the other way nothing"). Decoded as two's complement, then
+            // flipped so a left turn reads negative everywhere. The raw word is logged at warning level
+            // on every change (the unit's logcat drops info) so the encoding can be read off the car —
+            // if it turns out to be 0x8000-offset instead, that's the line to change.
+            steeringDeg = d(Call("getSteeringWheelValue", 1, device = "bodywork"))?.let { raw ->
+                if (raw != lastSteerRaw) { lastSteerRaw = raw; android.util.Log.w("SharkHubCar", "steering raw=$raw") }
+                val signed = if (raw > 32767.0) raw - 65536.0 else raw
+                -(signed / 10.0)
+            }?.takeIf { Math.abs(it) <= 780.0 },
             // The car's own gradient sensor (AUTO_SLOPE_MIN..MAX = ±60); units unverified, kept for the probe.
             slopeDeg = d(Call("getSlope", device = "sensor"))?.takeIf { Math.abs(it) <= 60.0 },
             tyres = Corner.entries.map { tyre(it) },

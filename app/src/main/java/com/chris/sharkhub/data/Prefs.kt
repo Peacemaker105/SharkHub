@@ -93,6 +93,16 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("scene_motion", true)
         set(v) = sp.edit().putBoolean("scene_motion", v).apply()
 
+    /** The lit-lamp overlays on the plates truck (head, tail, brake, indicators…); off hides them all. */
+    var sceneLamps: Boolean
+        get() = sp.getBoolean("scene_lamps", true)
+        set(v) = sp.edit().putBoolean("scene_lamps", v).apply()
+
+    /** The accent scan line sweeping the plates scene; off removes it. */
+    var sceneSweep: Boolean
+        get() = sp.getBoolean("scene_sweep", true)
+        set(v) = sp.edit().putBoolean("scene_sweep", v).apply()
+
     /** The truck shell's paint (opaque ARGB), applied by a tintable art set; see ui/overview/PaintColour.kt. */
     var paintColour: Int
         get() = sp.getInt("paint_colour", DEFAULT_PAINT)
@@ -100,7 +110,7 @@ class Prefs(ctx: Context) {
 
     /** The live Filament truck (ui/overview/live) instead of the pre-rendered plates, where its assets are in the build. */
     var liveScene: Boolean
-        get() = sp.getBoolean("live_scene", true)
+        get() = sp.getBoolean("live_scene", false)   // opt-in until the live look is tuned on the unit (first run: unlit truck)
         set(v) = sp.edit().putBoolean("live_scene", v).apply()
 
     /**
