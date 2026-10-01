@@ -98,6 +98,31 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("paint_colour", DEFAULT_PAINT)
         set(v) = sp.edit().putInt("paint_colour", v).apply()
 
+    /** The live Filament truck (ui/overview/live) instead of the pre-rendered plates, where its assets are in the build. */
+    var liveScene: Boolean
+        get() = sp.getBoolean("live_scene", true)
+        set(v) = sp.edit().putBoolean("live_scene", v).apply()
+
+    /**
+     * Set while the live scene's engine is coming up, cleared once it has rendered. Still set at the
+     * next start means it took the process down (a native crash can't be caught), so the live scene
+     * is switched off rather than tried again — a sideloaded car app must never loop at boot.
+     */
+    var liveScenePending: Boolean
+        get() = sp.getBoolean("live_scene_pending", false)
+        set(v) = sp.edit().putBoolean("live_scene_pending", v).commit().let { }
+
+    /** The live scene's orbit camera: azimuth / elevation in degrees and a zoom factor (1 = the plate framing). */
+    var liveAzimuth: Float
+        get() = sp.getFloat("live_az", DEFAULT_LIVE_AZ)
+        set(v) = sp.edit().putFloat("live_az", v).apply()
+    var liveElevation: Float
+        get() = sp.getFloat("live_el", DEFAULT_LIVE_EL)
+        set(v) = sp.edit().putFloat("live_el", v).apply()
+    var liveZoom: Float
+        get() = sp.getFloat("live_zoom", DEFAULT_LIVE_ZOOM)
+        set(v) = sp.edit().putFloat("live_zoom", v).apply()
+
     /** Where the truck scene is pinched to: a factor on the cover fit (0.5–1.2) and a pan in screen px. */
     var sceneZoom: Float
         get() = sp.getFloat("scene_zoom", DEFAULT_ZOOM)
@@ -153,6 +178,10 @@ class Prefs(ctx: Context) {
         val DEFAULT_PAINT: Int = 0xFF2B4566.toInt()
         /** The cover fit was "a little too zoomed in"; this needs the wide plates, and clamps up to 1 without them. */
         const val DEFAULT_ZOOM = 0.85f
+        /** The live camera's home: today's plate view (render_v2: az 235 / el 9 / fov 32) at the plate's zoom 0.85. */
+        const val DEFAULT_LIVE_AZ = 235f
+        const val DEFAULT_LIVE_EL = 9f
+        const val DEFAULT_LIVE_ZOOM = 0.85f
 
         /**
          * Where the unit is, for the driving-side guess. The time zone beats the locale: head units

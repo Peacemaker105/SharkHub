@@ -50,6 +50,7 @@ import com.chris.sharkhub.ui.ActionChip
 import com.chris.sharkhub.ui.RoundIconButton
 import com.chris.sharkhub.ui.SectionLabel
 import com.chris.sharkhub.ui.SegmentedControl
+import com.chris.sharkhub.ui.overview.live.LiveSupport
 import com.chris.sharkhub.ui.theme.LocalStyle
 import kotlinx.coroutines.delay
 
@@ -59,15 +60,17 @@ data class SceneSettings(
     /** A [SceneLighting] id: "auto" (Dynamic) or a fixed time of day. */
     val lighting: String = SceneLighting.AUTO,
     val motion: Boolean = true,
+    /** The live Filament truck rather than the pre-rendered plates, where the build has its assets. */
+    val live: Boolean = true,
 ) {
     companion object {
-        fun from(prefs: Prefs) = SceneSettings(prefs.paintColour, prefs.sceneLighting, prefs.sceneMotion)
+        fun from(prefs: Prefs) = SceneSettings(prefs.paintColour, prefs.sceneLighting, prefs.sceneMotion, prefs.liveScene)
     }
 }
 
 /** Store the sheet's values (the screens' side of [SceneSettings.from]). */
 fun Prefs.save(s: SceneSettings) {
-    paintColour = s.paint; sceneLighting = s.lighting; sceneMotion = s.motion
+    paintColour = s.paint; sceneLighting = s.lighting; sceneMotion = s.motion; liveScene = s.live
 }
 
 /** One row of the scene sheet: its title and the control that edits the settings. Add rows here. */
@@ -83,6 +86,13 @@ val sceneSettingRows: List<SceneSettingRow> = listOf(
         }
     },
     SceneSettingRow("Scene motion") { s, set -> SegmentedControl(listOf("Off", "On"), if (s.motion) 1 else 0) { set(s.copy(motion = it == 1)) } },
+    SceneSettingRow("Truck") { s, set ->
+        // the live renderer needs the private asset pack and Filament's native libraries (never the JVM)
+        val ctx = LocalContext.current
+        val liveOk = remember { LiveSupport.available(ctx) }
+        if (liveOk) SegmentedControl(listOf("Plates", "Live 3D"), if (s.live) 1 else 0) { set(s.copy(live = it == 1)) }
+        else Text("Live 3D needs the private asset pack in the build", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    },
 )
 
 /**

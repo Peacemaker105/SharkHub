@@ -97,6 +97,9 @@ import com.chris.sharkhub.ui.dash.AnimatedValue
 import com.chris.sharkhub.ui.inclino.VehicleTilt
 import com.chris.sharkhub.ui.inclino.VehicleView
 import com.chris.sharkhub.ui.isPortrait
+import com.chris.sharkhub.ui.overview.live.LiveCamera
+import com.chris.sharkhub.ui.overview.live.LiveCarScene
+import com.chris.sharkhub.ui.overview.live.LiveSupport
 import com.chris.sharkhub.ui.theme.LocalStyle
 import kotlin.math.abs
 import kotlin.math.cos
@@ -136,6 +139,10 @@ fun OverviewScreen(nav: NavController, car: CarManager) {
     // where the scene was last pinched to, written back once the fingers settle
     var camera by remember { mutableStateOf(SceneCamera(prefs.sceneZoom, Offset(prefs.scenePanX, prefs.scenePanY))) }
     LaunchedEffect(camera) { delay(400); prefs.sceneZoom = camera.zoom; prefs.scenePanX = camera.pan.x; prefs.scenePanY = camera.pan.y }
+    // the live Filament truck where its (private) assets are in the build and the user hasn't switched it off; its orbit is remembered too
+    val liveAvailable = remember { LiveSupport.available(ctx) }
+    var liveCamera by remember { mutableStateOf(LiveCamera(prefs.liveAzimuth, prefs.liveElevation, prefs.liveZoom)) }
+    LaunchedEffect(liveCamera) { delay(400); prefs.liveAzimuth = liveCamera.az; prefs.liveElevation = liveCamera.el; prefs.liveZoom = liveCamera.zoom }
     // The Vehicle page is fullscreen: the status bar goes while it's showing (a swipe brings it
     // back for a moment) and comes back when the page is left.
     val view = LocalView.current
@@ -151,7 +158,8 @@ fun OverviewScreen(nav: NavController, car: CarManager) {
         rollView = if (prefs.inclinoRollView == "rear") VehicleView.REAR else VehicleView.FRONT, timeOfDay = timeOfDay,
         sceneMotion = settings.motion, paint = paint,
         settings = settings, onSettings = { settings = it; prefs.save(it) },
-        camera = camera, onCamera = { camera = it })
+        camera = camera, onCamera = { camera = it },
+        live = liveAvailable && settings.live, liveCamera = liveCamera, onLiveCamera = { liveCamera = it })
 }
 
 /** Stateless body — also what the screenshot tests render. */
@@ -185,6 +193,10 @@ fun OverviewContent(
     /** Where the scene is pinched to; [onCamera] null leaves the scene fixed (the screenshot tests). */
     camera: SceneCamera = SceneCamera(),
     onCamera: ((SceneCamera) -> Unit)? = null,
+    /** The live Filament truck instead of the plates (never under the screenshot tests: it needs the native renderer). */
+    live: Boolean = false,
+    liveCamera: LiveCamera = LiveCamera(),
+    onLiveCamera: ((LiveCamera) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -216,14 +228,14 @@ fun OverviewContent(
             Column(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp, end = 20.dp, bottom = 16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion, paint,
-                    settings, onSettings, initialSheetOpen, camera, onCamera, result, onBack, onRage, Modifier.fillMaxWidth().height(440.dp)) { lens = it }
+                    settings, onSettings, initialSheetOpen, camera, onCamera, live, liveCamera, onLiveCamera, result, onBack, onRage, Modifier.fillMaxWidth().height(440.dp)) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.fillMaxWidth().padding(start = 20.dp))
             }
         } else {
             // the scene owns everything left of the mode column and meets the screen's left edge
             Row(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp, end = 20.dp, bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ScenePanel(scene, art, tele, att, heading, rollView, lens, xray, setXray, timeOfDay, sceneMotion, paint,
-                    settings, onSettings, initialSheetOpen, camera, onCamera, result, onBack, onRage, Modifier.weight(1f).fillMaxHeight()) { lens = it }
+                    settings, onSettings, initialSheetOpen, camera, onCamera, live, liveCamera, onLiveCamera, result, onBack, onRage, Modifier.weight(1f).fillMaxHeight()) { lens = it }
                 ModePanel(drive, road, power, driveNow, current(road), powerNow, pick, Modifier.width(216.dp).fillMaxHeight())
             }
         }
@@ -246,6 +258,7 @@ private fun ScenePanel(
     xray: Float, onXray: (Float) -> Unit, timeOfDay: TimeOfDay, sceneMotion: Boolean, paint: Color?,
     settings: SceneSettings, onSettings: (SceneSettings) -> Unit, initialSheetOpen: Boolean,
     camera: SceneCamera, onCamera: ((SceneCamera) -> Unit)?,
+    live: Boolean, liveCamera: LiveCamera, onLiveCamera: ((LiveCamera) -> Unit)?,
     /** The last command's outcome, shown beside the back button while there is one. */
     result: Pair<String, Color>?, onBack: () -> Unit, onRage: () -> Unit,
     modifier: Modifier, onLens: (Lens) -> Unit,
@@ -260,12 +273,18 @@ private fun ScenePanel(
             // While the art decodes the stage stands empty; the truck fades in when it arrives. The
             // wireframe only ever shows when there is no art at all.
             Crossfade(art, animationSpec = tween(250), label = "stage") { st ->
-                when (st) {
-                    is CarArtState.Ready -> CarPhotoScene(scene, st.art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay,
-                        sceneMotion = sceneMotion, paint = paint, camera = camera, onCamera = onCamera)
-                    CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
-                    CarArtState.Missing -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
+                val plates: @Composable () -> Unit = {
+                    when (st) {
+                        is CarArtState.Ready -> CarPhotoScene(scene, st.art, Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay,
+                            sceneMotion = sceneMotion, paint = paint, camera = camera, onCamera = onCamera)
+                        CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
+                        CarArtState.Missing -> CarScene(scene, Modifier.fillMaxSize().padding(horizontal = 6.dp))
+                    }
                 }
+                // the live renderer draws its own truck; the plates stand in wherever it can't run
+                if (live) LiveCarScene(scene, Color(settings.paint), Modifier.fillMaxSize(), avoidRight = cards, timeOfDay = timeOfDay,
+                    sceneMotion = sceneMotion, camera = liveCamera, onCamera = onLiveCamera, fallback = plates)
+                else plates()
             }
             // top-left: back, then the last command's result; top-right: Rage Mode
             Row(Modifier.align(Alignment.TopStart).padding(start = 14.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically,
@@ -311,8 +330,8 @@ private fun ScenePanel(
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) {
                 SegmentedControl(Lens.entries.map { it.label }, lens.ordinal) { onLens(Lens.entries[it]) }
             }
-            // Shell ↔ x-ray: only when the painted shell was rendered. Kept narrow so it clears the lens tabs.
-            if (art.art?.bodySolid != null) {
+            // Shell ↔ x-ray: only when the painted shell was rendered (the live truck always has one). Kept narrow so it clears the lens tabs.
+            if (live || art.art?.bodySolid != null) {
                 Column(Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 6.dp).width(150.dp)) {
                     Slider(value = xray, onValueChange = onXray, modifier = Modifier.fillMaxWidth().height(28.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -17,6 +17,82 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-01 — Claude Code (worktree agent) — Live 3D truck: Filament prototype beside the plates
+
+Chris wants to swipe around the truck ("a 3D camera pan"), which pre-rendered plates can't do. This
+session builds the live renderer that the Round 3 note recommended, as a prototype on its own branch,
+with the plates kept as the fallback and the Paparazzi path.
+
+- **Renderer (`ui/overview/live/`, Google Filament 1.74.0 — `filament-android`, `gltfio-android`,
+  `filament-utils-android`, arm64 only):** `LiveCarScene` hosts a `TextureView` in an `AndroidView`
+  with the Compose callouts over it (translucent swap chain, so Compose draws over and behind). It
+  draws BYD's own PA_RTL body and the Rage Mode driveline (two gltfio assets under one root that
+  turns the model's Z-up metres into Y-up ones, `LiveTruck`), the head unit's own horizon strip on a
+  cylinder with its horizon held at the camera's height, an environment light built from that strip
+  (`HDRLoader` → `IBLPrefilterContext`), a sun with PCF shadows, the two-lane road / verges / guide
+  posts and a contact shadow (`LiveWorld`), all lit per `TimeOfDay` (`LiveTimes.kt`: sun, IBL, fog
+  from the IBL, exposure, bloom after dark). filament-utils' `ModelViewer` couldn't host two assets
+  or a constrained camera, so `FilamentHost` is its surface plumbing (UiHelper + DisplayHelper +
+  Choreographer) without the manipulator; it logs frame times to logcat (`LiveCarScene` tag) every
+  120 frames. Dynamic resolution (min 0.6) + FXAA are on for the 60 fps target.
+- **Materials by name:** `tools/live/prep_live_assets.py` (pure Python + Pillow) rewrites the body
+  GLB's materials to the render_v2.html look — paint (clearcoat, colour set live from
+  `Prefs.paintColour`), chrome / alloy / skid, blended window glass and lamp covers, textured tyres
+  and calipers (BYD's `PA_tire1` atlas, flipped: Kanzi UVs have v up), AO on the plastics and tub,
+  interior fabric — and gives every lamp its own material per kind from the node's Kanzi state
+  (`lamp_head`, `lamp_drl_L/R`, `lamp_tail`, `lamp_brake`, `lamp_reverse`, `lamp_fog_f/r`, `lamp_lens`),
+  drops the rig's `hide` parts from the scene and makes everything double-sided. The driveline's
+  baked atlases go unlit, tinted by the theme (tertiary on the Electric lens). The script also
+  downsamples the panos (6144×1410 JPEG), builds equirect `.hdr` environments from the showroom
+  cubemap and from each pano strip, and writes `live_meta.json` (hubs, parts, anchors, pano layout).
+  Output is the gitignored `app/src/main/assets/car_private/live/` (17 files, 28.4 MB).
+- **What's live:** paint colour; `lampsFor` → emissive per lamp material (indicators blink at 1.3 Hz
+  on the DRL strips, as the Shark's do); wheels spin with `speedKph` about their hubs (calipers fixed,
+  fronts steer with `steeringDeg`/10 clamped ±35°); road paint, verges and posts scroll back with
+  speed (the pano stays), `Prefs.sceneMotion` off = still; the x-ray slider swaps the shell to a
+  theme-tinted ghost (fade material with a depth pre-pass) over the driveline and hides the interior
+  past 0.3; the Incline lens tips the truck itself about its ground contact; dawn / day / dusk / night.
+- **Gestures / camera:** `LiveCamera` — two fingers orbit (azimuth 120–250°: rear quarter … side-on …
+  today's front quarter at 235, elevation 2–25°), pinch zooms 0.5–1.6; default az 235 / el 9 / fov 32
+  with the distance chosen so zoom 0.85 matches the plate's framing; saved in `Prefs.liveAzimuth /
+  liveElevation / liveZoom`. One finger is left to the taps (`detectTwoFingerTransform` reused).
+- **Anchors:** every frame (when the camera, size or tilt moved) the hubs, four ground contacts, nose /
+  tail / roof and the engine / motors / battery centres are projected to view pixels (`LiveAnchors`
+  StateFlow); the overlay draws the Tyres callouts + ground plates, the Electric callouts, the Incline
+  bracket scales and the stage page's Battery / Tyres / Drive callouts from them.
+- **Selection:** `Prefs.liveScene` (default on; scene sheet → Truck: Plates / Live 3D, shown only where
+  the live scene can run). `OverviewScreen` and the dashboard's stage page use `LiveCarScene` when
+  `LiveSupport.available()` (the private pack is in the build and Filament's natives load) and the
+  pref is on, else `CarPhotoScene`; `LiveCarScene` itself falls back to the plates if the scene fails
+  to come up. `OverviewContent` / `DashboardContent` default `live = false`, so Paparazzi always
+  renders the plates. `LiveScene.warm()` brings the engine up after MainActivity's first frame.
+  **Crash guard:** `Prefs.liveScenePending` is set before the engine starts and cleared 30 frames
+  after the truck is on screen; found still set at the next start (a native crash can't be caught),
+  the live scene switches itself off (`Prefs.liveScene = false`) so the car can't boot-loop — the
+  scene sheet's Truck row turns it back on. (The system killing the app mid-load trips it too.)
+- **Also:** `tyrePlateColours`, `drawGroundPlate` (now takes a length) and `drawBracket` in
+  `CarPhotoArt.kt` are shared with the live overlay; `noCompress` for `.glb` / `.hdr`.
+- **Files:** new `app/src/main/java/com/chris/sharkhub/ui/overview/live/{LiveCarScene, LiveScene,
+  FilamentHost, LiveTruck, LiveWorld, LiveCamera, LiveTimes, LiveSupport, LiveMath}.kt`,
+  `tools/live/prep_live_assets.py`; changed `app/build.gradle.kts`, `MainActivity.kt`, `data/Prefs.kt`,
+  `ui/overview/{OverviewScreen, SceneSettings, CarPhotoArt}.kt`, `ui/dash/DashboardScreen.kt`,
+  `CLAUDE.md`, `HANDOVER.md`; private (gitignored): `assets/car_private/live/`.
+- **Verified:** compiles; `assembleDebug` 133.2 MB (was 102.7: +28.4 MB live pack, +3.2 MB Filament
+  natives compressed / 6.6 uncompressed, +0.9 MB dex); `recordPaparazziDebug` passes and still
+  records the plates (only `overviewSettings` changed on purpose — the new Truck row — plus the
+  clock-bearing dashboard / menu shots). **Nothing has run on a device**: the car was being driven,
+  so no install, no frame-time numbers, no look check. The gltfio / utils APIs were checked against
+  the 1.74.0 AARs with javap and the ubershader's parameter names against its `base.mat.in`.
+- **Open / next (first on the car):** does the scene come up (logcat `LiveCarScene`: "live scene
+  ready", then "frame … ms avg" lines); exposure / brightness of the lit truck against the unlit
+  backdrop per time (`LiveTimes.kt` presets are a first guess); wheel spin direction and steer sign;
+  the Incline tilt signs; the ghost's alpha curve and the lens covers under x-ray; orbit speed
+  (`LiveCamera.DEG_PER_PX`) and the az range; whether the DRL strips should stay lit by day;
+  `steeringDeg`/10 once CarManager's tenths fix lands (then drop the ÷10, see `LiveScene.frame`);
+  the pano's heading (mirror / rotation vs the plates); the energy-pipe flow animation and the lamp
+  halos are not done; the showroom HDR (`env_showroom.hdr`) is packed but unused — try it for day
+  if the pano-built IBL looks flat on the paint.
+
 ## 2026-10-01 — Claude Code — BYD's Rage Mode chassis is now the x-ray driveline (private pack)
 
 Chris saw BYD's Rage Mode scene on the car ("a chassis with a ghost shell and rolling wheels") and

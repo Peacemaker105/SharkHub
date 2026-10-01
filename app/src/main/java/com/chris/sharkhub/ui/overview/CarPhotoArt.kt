@@ -626,6 +626,31 @@ private class SceneFrame(val fit: Rect, val cover: Rect, val panel: Size, val zo
 private const val GRID_PX = 130f
 
 /**
+ * Tyres lens: a plate colour per corner. Green unless the car's TPMS flags it (under → red, over →
+ * amber), it sits well under its axle-mate (amber from 8 % under, fully at 16 % — a ute runs its
+ * rears harder than its fronts, so axles are never compared with each other), or it's under an
+ * absolute floor (red from 30 psi, fully at 26). No reading → no colour (hairline). Shared by the
+ * pre-rendered and the live scene.
+ */
+internal fun tyrePlateColours(tyres: List<Tyre?>, cs: androidx.compose.material3.ColorScheme): List<Color?> {
+    fun mate(c: Corner) = when (c) { Corner.LF -> Corner.RF; Corner.RF -> Corner.LF; Corner.LR -> Corner.RR; Corner.RR -> Corner.LR }
+    return tyres.mapIndexed { i, t: Tyre? ->
+        when {
+            t == null -> null
+            t.low -> cs.error
+            t.high -> cs.secondary
+            else -> {
+                val m = tyres.getOrNull(mate(Corner.entries[i]).ordinal)?.takeIf { it.state == 0 && it.psi > 0 }?.psi
+                val underMate = if (m == null) 0f else ((m - t.psi) / m).toFloat()
+                val mateShade = ((underMate - 0.08f) / 0.08f).coerceIn(0f, 1f)
+                val floorShade = ((30.0 - t.psi) / 4.0).toFloat().coerceIn(0f, 1f)
+                lerp(lerp(cs.good, cs.secondary, mateShade), cs.error, floorShade)
+            }
+        }
+    }
+}
+
+/**
  * The photo-real overview scene: the rendered truck sits on its road, the wheels cycle their spin
  * frames with road speed, the road paint streaks and the plate blurs and drifts as speed rises
  * (dead still at rest, and a still altogether with [sceneMotion] off), the lamps light from the
@@ -682,28 +707,7 @@ fun CarPhotoScene(
     // the blurred plate comes in with speed: nothing at rest, most of it by 100 km/h
     val speedFrac = (speedKph / 100f).coerceIn(0f, 1f)
     val blurBlend = 0.85f * speedFrac * speedFrac * (3f - 2f * speedFrac)
-    // Tyres lens: a plate colour per corner. Green unless the car's TPMS flags it (under → red, over →
-    // amber), it sits well under its axle-mate (amber from 8 % under, fully at 16 % — a ute runs its
-    // rears harder than its fronts, so axles are never compared with each other), or it's under an
-    // absolute floor (red from 30 psi, fully at 26). No reading → no colour (hairline).
-    val plateColours: List<Color?> = remember(state.tele.tyres, cs) {
-        val tyres = state.tele.tyres
-        fun mate(c: Corner) = when (c) { Corner.LF -> Corner.RF; Corner.RF -> Corner.LF; Corner.LR -> Corner.RR; Corner.RR -> Corner.LR }
-        tyres.mapIndexed { i, t: Tyre? ->
-            when {
-                t == null -> null
-                t.low -> cs.error
-                t.high -> cs.secondary
-                else -> {
-                    val m = tyres.getOrNull(mate(Corner.entries[i]).ordinal)?.takeIf { it.state == 0 && it.psi > 0 }?.psi
-                    val underMate = if (m == null) 0f else ((m - t.psi) / m).toFloat()
-                    val mateShade = ((underMate - 0.08f) / 0.08f).coerceIn(0f, 1f)
-                    val floorShade = ((30.0 - t.psi) / 4.0).toFloat().coerceIn(0f, 1f)
-                    lerp(lerp(cs.good, cs.secondary, mateShade), cs.error, floorShade)
-                }
-            }
-        }
-    }
+    val plateColours: List<Color?> = remember(state.tele.tyres, cs) { tyrePlateColours(state.tele.tyres, cs) }
 
     Canvas(modifier.then(gestures)) {
         // With a modelled scene the whole render canvas is the picture (cover), pinched by the
@@ -980,11 +984,11 @@ private fun DrawScope.drawGroundPx(cs: androidx.compose.material3.ColorScheme, g
 /**
  * The Tyres lens's ground plate under one tyre: a ladder of lit bars lying on the road, longer
  * than the contact patch, brightest under the tyre. Render-canvas units, drawn before the wheels
- * so the tyre sits on it. [along] is the unit vector down the car, [across] one track width. With
- * no [color] (nothing reported) just the bars' hairline outline in [ink].
+ * so the tyre sits on it. [along] is the unit vector down the car, [across] one track width, [len]
+ * the ladder's length in the same units. With no [color] (nothing reported) just the bars' hairline
+ * outline in [ink].
  */
-private fun DrawScope.drawGroundPlate(at: Offset, along: Offset, across: Offset, color: Color?, ink: Color) {
-    val len = 380f
+internal fun DrawScope.drawGroundPlate(at: Offset, along: Offset, across: Offset, color: Color?, ink: Color, len: Float = 380f) {
     val halfW = across.getDistance() * 0.22f
     val d = across / across.getDistance()
     val bars = 11
@@ -1015,7 +1019,7 @@ private fun DrawScope.drawGroundPlate(at: Offset, along: Offset, across: Offset,
  * reading with a marker there, and the floating "4° / Pitch angle" label on its outside. When that
  * label would land under the floating cards it goes above the top end instead.
  */
-private fun DrawScope.drawBracket(
+internal fun DrawScope.drawBracket(
     cs: androidx.compose.material3.ColorScheme, measurer: androidx.compose.ui.text.TextMeasurer, st: CalloutStyle,
     centre: Offset, halfHeight: Float, out: Offset, deg: Float, shownDeg: Float, color: Color, fine: Boolean, caption: String, avoidRight: Float,
 ) {

@@ -19,6 +19,24 @@ for what each session changed (add your own entry there before you finish).
 - **Package:** `com.chris.sharkhub` — **installed on the car** (v0.2.0 release, Shark Hub key).
   Dashboard, overview, gauges and sentry verified rendering on the unit with live data (2026-10-01).
 
+## Live 3D truck — Filament prototype (2026-10-01, late) — BUILT, NOT YET ON THE CAR
+Chris's "swipe around the car" is answered by a live renderer: `ui/overview/live/` draws BYD's own
+PA_RTL body plus the Rage Mode driveline with **Google Filament 1.74.0** (`filament-android`,
+`gltfio-android`, `filament-utils-android`, arm64 only) into a `TextureView` under the Compose
+overlays, on the Vehicle page and the dashboard's stage page. Two fingers orbit (azimuth 120–250°,
+elevation 2–25°), pinch zooms (0.5–1.6), one finger stays with the taps; the orbit is kept in
+`Prefs.live*`. Paint colour, lamps (`lampsFor`), wheel spin + steer, the road / posts scrolling with
+speed, the x-ray ghost over the driveline, the Incline tilt, dawn / day / dusk / night (pano strip
+on a cylinder + an IBL built from it + sun + fog) are all live; the callouts, tyre plates and
+bracket scales come from anchors the renderer projects each frame. **Assets are private:**
+`python tools\live\prep_live_assets.py` rebuilds `app/src/main/assets/car_private/live/` (28 MB,
+gitignored) from `C:\dev\byd_factory`; without that folder, or with the scene sheet's Truck set to
+Plates, everything falls back to the pre-rendered `CarPhotoScene` (and Paparazzi always does).
+**First on the car:** does it come up at all (logcat tag `LiveCarScene`: "live scene ready", then
+the frame-time lines every ~2 s — the target is 16.7 ms avg at 1920×1080); wheel spin direction and
+steer sign; the Incline tilt signs; day / night exposure against the backdrop (`LiveTimes.kt`); the
+x-ray ghost; two-finger orbit feel (`LiveCamera.DEG_PER_PX`). Details in CHANGELOG 2026-10-01 (live).
+
 ## Overview v2 direction (2026-10-01, evening) — Chris's reference: the Denza / Fang Cheng Bao off-road page
 Two photos of that head unit are in `C:\dev\byd_factory\refs\denza_offroad_{incline,xray}.jpg`
 (private, his photos of BYD's UI). The rule he set: the Overview's **Incline lens keeps the hero 3D

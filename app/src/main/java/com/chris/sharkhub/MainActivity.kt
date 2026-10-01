@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.fillMaxSize
 import com.chris.sharkhub.ui.overview.CarArtStore
+import com.chris.sharkhub.ui.overview.live.LiveScene
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -46,8 +47,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // the rendered truck starts decoding now, so the first stage shows it instead of a placeholder
+        // the rendered truck starts decoding now, so the first stage shows it instead of a placeholder;
+        // the live Filament truck (where its assets are in the build) comes up right behind it
         CarArtStore.start(applicationContext)
+        LiveScene.warm(applicationContext)
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 

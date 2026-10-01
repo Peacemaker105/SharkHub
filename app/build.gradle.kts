@@ -86,6 +86,8 @@ android {
     androidResources {
         // The private car art folder carries preview_*.png for humans (5.8 MB); the app never reads them.
         ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:preview_*"
+        // the live scene's models and environments are read whole at start-up; stored, they open without inflating
+        noCompress += listOf("glb", "hdr")
     }
 }
 
@@ -109,6 +111,13 @@ dependencies {
 
     // Networking for OTA
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Live 3D truck scene (ui/overview/live): Filament renderer + glTF loader + the Kotlin utils
+    // (UiHelper/DisplayHelper surface plumbing, HDR loader, IBL prefilter). arm64 only via abiFilters.
+    val filament = "1.74.0"
+    implementation("com.google.android.filament:filament-android:$filament")
+    implementation("com.google.android.filament:gltfio-android:$filament")
+    implementation("com.google.android.filament:filament-utils-android:$filament")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.compose.ui:ui-tooling-preview")

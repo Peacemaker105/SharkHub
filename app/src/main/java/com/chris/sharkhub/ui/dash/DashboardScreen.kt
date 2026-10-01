@@ -121,6 +121,9 @@ import com.chris.sharkhub.ui.overview.save
 import com.chris.sharkhub.ui.overview.TimeOfDay
 import com.chris.sharkhub.ui.overview.art
 import com.chris.sharkhub.ui.overview.rememberCarArt
+import com.chris.sharkhub.ui.overview.live.LiveCamera
+import com.chris.sharkhub.ui.overview.live.LiveCarScene
+import com.chris.sharkhub.ui.overview.live.LiveSupport
 import com.chris.sharkhub.ui.overview.rememberTimeOfDay
 import com.chris.sharkhub.ui.theme.LocalStyle
 import kotlinx.coroutines.launch
@@ -162,6 +165,10 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
     // the same pinch as the Vehicle page, remembered with it
     var camera by remember { mutableStateOf(SceneCamera(prefs.sceneZoom, Offset(prefs.scenePanX, prefs.scenePanY))) }
     LaunchedEffect(camera) { delay(400); prefs.sceneZoom = camera.zoom; prefs.scenePanX = camera.pan.x; prefs.scenePanY = camera.pan.y }
+    // the live Filament truck on the stage page, with the Vehicle page's orbit
+    val liveAvailable = remember { LiveSupport.available(ctx) }
+    var liveCamera by remember { mutableStateOf(LiveCamera(prefs.liveAzimuth, prefs.liveElevation, prefs.liveZoom)) }
+    LaunchedEffect(liveCamera) { delay(400); prefs.liveAzimuth = liveCamera.az; prefs.liveElevation = liveCamera.el; prefs.liveZoom = liveCamera.zoom }
     DashboardContent(
         nav = nav, car = car, tele = tele, climate = climate, vehicle = vehicle,
         connected = discovery?.backend != null, layout = layout, lastResult = last,
@@ -172,6 +179,7 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
         fuelLog = fuelLog, timeOfDay = timeOfDay, sceneMotion = settings.motion, paint = paint,
         settings = settings, onSettings = { settings = it; prefs.save(it) },
         camera = camera, onCamera = { camera = it },
+        live = liveAvailable && settings.live, liveCamera = liveCamera, onLiveCamera = { liveCamera = it },
     )
 }
 
@@ -209,6 +217,10 @@ fun DashboardContent(
     /** Where the stage's scene is pinched to; [onCamera] null leaves it fixed. */
     camera: SceneCamera = SceneCamera(),
     onCamera: ((SceneCamera) -> Unit)? = null,
+    /** The live Filament truck on the stage page instead of the plates (never under the screenshot tests). */
+    live: Boolean = false,
+    liveCamera: LiveCamera = LiveCamera(),
+    onLiveCamera: ((LiveCamera) -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val cs = MaterialTheme.colorScheme
@@ -278,6 +290,7 @@ fun DashboardContent(
                         val onRemove: (Int) -> Unit = { idx -> updatePage(pageIndex) { pg -> pg.copy(widgets = pg.widgets.filterIndexed { j, _ -> j != idx }) } }
                         when (p.kind) {
                             PageKind.STAGE -> StagePage(p, scope, art, timeOfDay, sceneMotion, paint, settings, onSettings, camera, onCamera,
+                                live, liveCamera, onLiveCamera,
                                 editing, onReorder, onRemove, Modifier.fillMaxSize().padding(end = if (dock) 4.dp else 20.dp, bottom = 4.dp))
                             else -> WidgetGrid(p.widgets, p.kind, scope, editing, onReorder, onRemove,
                                 Modifier.fillMaxSize().padding(start = 20.dp, end = if (dock) 8.dp else 20.dp))
@@ -443,7 +456,8 @@ private fun PageDots(count: Int, current: Int) {
 @Composable
 private fun StagePage(
     page: DashPage, scope: DashScope, art: CarArtState, timeOfDay: TimeOfDay, sceneMotion: Boolean, paint: Color?,
-    settings: SceneSettings, onSettings: (SceneSettings) -> Unit, camera: SceneCamera, onCamera: ((SceneCamera) -> Unit)?, editing: Boolean,
+    settings: SceneSettings, onSettings: (SceneSettings) -> Unit, camera: SceneCamera, onCamera: ((SceneCamera) -> Unit)?,
+    live: Boolean, liveCamera: LiveCamera, onLiveCamera: ((LiveCamera) -> Unit)?, editing: Boolean,
     onReorder: (Int, Int) -> Unit, onRemove: (Int) -> Unit, modifier: Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -459,12 +473,17 @@ private fun StagePage(
         Box(Modifier.fillMaxSize()) {
             // an empty stage while the art decodes (never the wireframe, which would flash), the truck fading in after
             Crossfade(art, animationSpec = tween(250), label = "stage") { st ->
-                when (st) {
-                    is CarArtState.Ready -> CarPhotoScene(state, st.art, Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion, paint = paint,
-                        camera = camera, onCamera = onCamera)
-                    CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
-                    CarArtState.Missing -> CarScene(state, Modifier.fillMaxSize().padding(6.dp))
+                val plates: @Composable () -> Unit = {
+                    when (st) {
+                        is CarArtState.Ready -> CarPhotoScene(state, st.art, Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion, paint = paint,
+                            camera = camera, onCamera = onCamera)
+                        CarArtState.Loading -> EmptyStage(Modifier.fillMaxSize())
+                        CarArtState.Missing -> CarScene(state, Modifier.fillMaxSize().padding(6.dp))
+                    }
                 }
+                if (live) LiveCarScene(state, Color(settings.paint), Modifier.fillMaxSize(), timeOfDay = timeOfDay, sceneMotion = sceneMotion,
+                    camera = liveCamera, onCamera = onLiveCamera, fallback = plates)
+                else plates()
             }
             StageClock(scope, Modifier.align(Alignment.TopStart).padding(start = 26.dp, top = 12.dp))
             Row(Modifier.align(Alignment.TopEnd).padding(end = 16.dp, top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
