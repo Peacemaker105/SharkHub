@@ -48,7 +48,7 @@ with the plates kept as the fallback and the Paparazzi path.
   Output is the gitignored `app/src/main/assets/car_private/live/` (17 files, 28.4 MB).
 - **What's live:** paint colour; `lampsFor` → emissive per lamp material (indicators blink at 1.3 Hz
   on the DRL strips, as the Shark's do); wheels spin with `speedKph` about their hubs (calipers fixed,
-  fronts steer with `steeringDeg`/10 clamped ±35°); road paint, verges and posts scroll back with
+  fronts steer with `steeringDeg` as the round-4 CarManager reports it, clamped ±35°); road paint, verges and posts scroll back with
   speed (the pano stays), `Prefs.sceneMotion` off = still; the x-ray slider swaps the shell to a
   theme-tinted ghost (fade material with a depth pre-pass) over the driveline and hides the interior
   past 0.3; the Incline lens tips the truck itself about its ground contact; dawn / day / dusk / night.
@@ -88,10 +88,15 @@ with the plates kept as the fallback and the Paparazzi path.
   backdrop per time (`LiveTimes.kt` presets are a first guess); wheel spin direction and steer sign;
   the Incline tilt signs; the ghost's alpha curve and the lens covers under x-ray; orbit speed
   (`LiveCamera.DEG_PER_PX`) and the az range; whether the DRL strips should stay lit by day;
-  `steeringDeg`/10 once CarManager's tenths fix lands (then drop the ÷10, see `LiveScene.frame`);
+  whether the road wheels should follow the steering wheel 1:1 or through a ratio (`LiveScene.frame`);
   the pano's heading (mirror / rotation vs the plates); the energy-pipe flow animation and the lamp
   halos are not done; the showroom HDR (`env_showroom.hdr`) is packed but unused — try it for day
   if the pano-built IBL looks flat on the paint.
+- **Merged with round 4** (`6dbcc51`): the live wiring sits on the round-4 `OverviewScreen` /
+  `DashboardScreen` / `SceneSettings` / `Prefs` (per-page `sceneCamera`, factory swatches, the
+  Scene-motion subtitle all kept; the Truck row got a subtitle in the same style; the legacy
+  `sceneZoom/scenePanX/Y` properties went with main's rewrite). `LiveScene` takes `steeringDeg` as
+  CarManager now reports it (degrees, no ÷10 of its own).
 
 ## 2026-10-01 — Claude Code — BYD's Rage Mode chassis is now the x-ray driveline (private pack)
 
@@ -137,6 +142,25 @@ the morning's decode, then the renderer was pointed at the result.
 - **Open / next:** pick a flow direction/rate for the pipes if we animate them (nothing in the
   kzb); the Electric lens could highlight the named parts now that anchors are real; the live
   renderer decision (the placed `byd_car_rage_in_pa.glb` is ready for it).
+- **Later the same day (Chris drove with it):** "the car is see-through around the windows" — the
+  far-side doors' paint showed through the near windows. Cause: in the split paint passes the
+  non-paint parts are depth-only and three groups opaque draws by shader program, so the far
+  door's paint was drawn before the near window and door trim had written their depth. Fix
+  (`render_v2.html` `captureShell`): every shell layer now renders a depth pre-pass of all opaque
+  parts first (clear parts — glass, lamp covers — stay out of it so the interior still shows
+  through the windows), then its own pass on top of that depth. Measured on the near front window:
+  the paint layers went from 69 % painted to 0 %. Also the scenery, for Chris's "make the railing
+  and road lines move": the plate is rendered without the Armco rail and with a dashed centre line
+  (`road.dashes = true`, `railZ = null`), so the app's own moving dashes, streaks and guide posts
+  carry the motion again. Pack re-rendered; the app side of this round is the parallel agent's
+  (its "Round 4" bullets in the round-two entry below: steering ÷10, Fuel card rows, Electric
+  system card, pager hand-over to the Vehicle page, two-zone Climate card with seat pills, bevelled
+  SOC thumb, reclined seats + air ribbons, per-page pinch memory, portrait gauges, the five factory
+  paint swatches). **Paint by day:** with the clearcoat added at full strength even Cosmos Black read
+  (55, 64, 69) on the day plate, so the meta now carries `paint.specGain` (rig `paint.specGain`,
+  written by `render_v2.html`, honoured by the packer's previews and by the app) — set to 0.35.
+  Round 4 verified: 76 tests green, both snapshot sets inspected, `assembleDebug` built; **not on
+  the car yet** (Chris was driving).
 
 ## 2026-10-01 — Claude Code — Round 3: round two seen on the car; tintable paint pack, wide plates, lamps out of the shells; cog sheet, fullscreen Vehicle page, zoom/pan, Menu tile fix
 
@@ -435,8 +459,33 @@ tile; on-car SET tests + inclinometer zero + a drive for gauge scaling.
   wide plates land). Truck layers, callouts, plates and HUD scale with the zoom; text keeps its size.
   The same two-finger drag is where an orbit would hang off if the set ever goes live-rendered
   (nothing built for it). `overviewZoomed` snapshot.
+- **Round 4 (Chris's drive with the round-3 build):** steering now ÷ 10 — the bodywork getter reports
+  tenths of a degree (32° on a straight road) — so the Wheels card, steering glyph, wireframe and gauge
+  all read degrees; the bento Fuel card's "Calc. range / Average" pair is two aligned rows (labels, then
+  values in the same style, equal columns, a 12 dp gap, single-line) and there's a `dashboardLargeFont`
+  snapshot at fontScale 1.3; the Vehicle page's third card is now **Electric system** (battery % and
+  flow with a SOC ring, engine / charge status) so the three cards mirror the lenses and each taps to
+  its lens, with the heading moved into the top-left readings row; the Home pager has a hand-over page
+  after the stage — swipe on and the Overview opens (pager steps back so returning lands on the stage;
+  hollow page dot for it; not while editing) and a one-finger right-swipe on the Vehicle page goes back;
+  the stage Climate card gives DRIVER and PASSENGER each their own − / + and compact heat / vent pills
+  (`ZoneRow`, `SeatMini`); the SOC-save slider has a continuous track under a bevelled thumb
+  (`BevelThumb`: gradient, hairline highlight, drop shadow, theme colours); the seat graphic's backrest
+  reclines ~14°, the heat glow stays in the cushion, and the airflow is ribbons of air (`Ribbons`, built
+  once with eight pre-made fade phases — no per-frame allocations) drifting to face / feet / screen,
+  ventilation's sinking back into the seat; the sheet's Scene motion row says "Off = still scene"
+  (v2 with `road.dashes:true` draws the moving dashes, streaks and posts over the plate like v1);
+  pinch memory is now per page (`Prefs.sceneCamera("overview"|"stage")`, the old single keys count as
+  the Overview's); `ArcGauge` sizes by its smaller dimension so a narrow portrait cell can't squash it,
+  and the portrait bento keeps each card's column span and halves its row span (cards at about their
+  landscape size, reflowing), with a `dashboardPortrait` snapshot. Paint: the swatches are the five
+  orderable Shark 6 colours from the dealer configurator (Deep Sea Blue #203450 = `Prefs.DEFAULT_PAINT`,
+  Arctic White #DCDFE3, Harbour Grey #9C9B96, Cosmos Black #121418, "Red" #8F3328 until its name is
+  known; the extras are gone, the custom hex stays), and `paint.specGain` (0–1, default 1) from the
+  meta scales the clearcoat layer's alpha in the scene and on the flat views.
 - **Files:** `ui/overview/{CarPhotoArt.kt, CarScene.kt, OverviewScreen.kt, RoadBlur.kt (new),
   PaintColour.kt (new), SceneSettings.kt (new), TimeOfDay.kt, InclineView.kt}`, `ui/inclino/InclinoGraphics.kt`,
+  `ui/climate/SeatGraphic.kt`, `car/CarManager.kt`,
   `ui/dash/DashWidgets.kt`, `ui/theme/Theme.kt`, `ui/dash/DashboardScreen.kt`, `ui/OptionsScreen.kt`,
   `data/Prefs.kt`, `car/CarManager.kt` (Telemetry), `car/VehicleControls.kt` (`LS_ON/OFF` public),
   `MainActivity.kt`, `app/build.gradle.kts`, `.gitignore`, `ScreenSnapshots.kt`.

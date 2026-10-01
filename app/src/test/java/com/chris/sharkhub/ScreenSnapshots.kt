@@ -77,14 +77,13 @@ import org.junit.Test
  * Screens render in the default Infotainment style unless a test says otherwise.
  */
 class ScreenSnapshots {
-    @get:Rule
-    val paparazzi = Paparazzi(
-        deviceConfig = DeviceConfig.PIXEL_C.copy(
-            screenWidth = 1920, screenHeight = 1080, xdpi = 240, ydpi = 240,
-            density = Density.HIGH, orientation = ScreenOrientation.LANDSCAPE,
-        ),
-        theme = "android:Theme.Material.NoActionBar",
+    private val LANDSCAPE = DeviceConfig.PIXEL_C.copy(
+        screenWidth = 1920, screenHeight = 1080, xdpi = 240, ydpi = 240,
+        density = Density.HIGH, orientation = ScreenOrientation.LANDSCAPE,
     )
+
+    @get:Rule
+    val paparazzi = Paparazzi(deviceConfig = LANDSCAPE, theme = "android:Theme.Material.NoActionBar")
 
     private val car by lazy { CarManager(paparazzi.context) }
 
@@ -187,6 +186,16 @@ class ScreenSnapshots {
 
     // ---- dashboard (boot screen) ----
     @Test fun dashboard() { shot { dashboardContent() } }
+    /** The bento in portrait (the unit's screen rotates): ring gauges must stay round and the cards reflow. */
+    @Test fun dashboardPortrait() {
+        paparazzi.unsafeUpdateConfig(deviceConfig = LANDSCAPE.copy(screenWidth = 1080, screenHeight = 1920, orientation = ScreenOrientation.PORTRAIT))
+        shot { dashboardContent() }
+    }
+    /** The bento at the head unit's larger font scale, where the fuel card's label pairs used to run together. */
+    @Test fun dashboardLargeFont() {
+        paparazzi.unsafeUpdateConfig(deviceConfig = LANDSCAPE.copy(fontScale = 1.3f))
+        shot { dashboardContent() }
+    }
     @Test fun dashboardStage() { shot { dashboardContent(page = 1, tele = drivingTelemetry) } }
     @Test fun dashboardStageNight() { shot { dashboardContent(page = 1, tele = drivingTelemetry, time = TimeOfDay.NIGHT) } }
     @Test fun dashboardPlain() { shot { dashboardContent(backdrop = HomeBackdrop.NONE, dock = false) } }

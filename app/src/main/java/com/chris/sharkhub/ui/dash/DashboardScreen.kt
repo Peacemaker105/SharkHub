@@ -162,10 +162,10 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
     val timeOfDay = rememberTimeOfDay(settings.lighting)
     // only a set that says its shell is a neutral render takes the chosen paint
     val paint = if (art.art?.paintTintable == true) Color(settings.paint) else null
-    // the same pinch as the Vehicle page, remembered with it
-    var camera by remember { mutableStateOf(SceneCamera(prefs.sceneZoom, Offset(prefs.scenePanX, prefs.scenePanY))) }
-    LaunchedEffect(camera) { delay(400); prefs.sceneZoom = camera.zoom; prefs.scenePanX = camera.pan.x; prefs.scenePanY = camera.pan.y }
-    // the live Filament truck on the stage page, with the Vehicle page's orbit
+    // the stage's own pinch memory, apart from the Vehicle page's
+    var camera by remember { mutableStateOf(prefs.sceneCamera(Prefs.SCENE_STAGE).let { (z, x, y) -> SceneCamera(z, Offset(x, y)) }) }
+    LaunchedEffect(camera) { delay(400); prefs.setSceneCamera(Prefs.SCENE_STAGE, camera.zoom, camera.pan.x, camera.pan.y) }
+    // the live Filament truck on the stage page, with the Vehicle page's orbit (one orbit memory for both)
     val liveAvailable = remember { LiveSupport.available(ctx) }
     var liveCamera by remember { mutableStateOf(LiveCamera(prefs.liveAzimuth, prefs.liveElevation, prefs.liveZoom)) }
     LaunchedEffect(liveCamera) { delay(400); prefs.liveAzimuth = liveCamera.az; prefs.liveElevation = liveCamera.el; prefs.liveZoom = liveCamera.zoom }
@@ -228,8 +228,16 @@ fun DashboardContent(
     var picker by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmText by remember { mutableStateOf("") }
-    val pager = rememberPagerState(initialPage = initialPage.coerceIn(0, layout.pages.size - 1)) { layout.pages.size }
+    // One page past the last is the Vehicle page: swiping on to it hands over to the Overview and
+    // the pager steps back, so returning lands on the stage. Not while editing — page counts change then.
+    val pager = rememberPagerState(initialPage = initialPage.coerceIn(0, layout.pages.size - 1)) { layout.pages.size + if (editing) 0 else 1 }
     val coScope = rememberCoroutineScope()
+    LaunchedEffect(pager.settledPage, editing) {
+        if (!editing && pager.settledPage == layout.pages.size) {
+            pager.scrollToPage(layout.pages.size - 1)
+            nav.navigate(Routes.OVERVIEW)
+        }
+    }
     // Deleting the last page leaves the pager pointing past the end.
     LaunchedEffect(layout.pages.size) {
         if (pager.currentPage >= layout.pages.size) pager.animateScrollToPage(layout.pages.size - 1)
@@ -262,7 +270,7 @@ fun DashboardContent(
                     Text("Shark Hub", style = MaterialTheme.typography.headlineSmall, color = cs.onSurface, maxLines = 1)
                     Text("By Muzz", style = MaterialTheme.typography.labelMedium, color = cs.onSurfaceVariant, maxLines = 1,
                         modifier = Modifier.padding(top = 6.dp))
-                    PageDots(layout.pages.size, pager.currentPage)
+                    PageDots(layout.pages.size, pager.currentPage, vehicle = !editing)
                     Spacer(Modifier.weight(1f))
                     if (lastResult != null) {
                         val ok = lastResult.result.isSuccess
@@ -283,6 +291,11 @@ fun DashboardContent(
                 // ---- pages ----
                 CompositionLocalProvider(LocalStyle provides pageStyle) {
                     HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()) { pageIndex ->
+                        if (pageIndex >= layout.pages.size) {
+                            // the hand-over page: seen only for the moment the swipe takes to settle
+                            VehicleHandoff(Modifier.fillMaxSize().padding(end = if (dock) 4.dp else 20.dp, bottom = 4.dp))
+                            return@HorizontalPager
+                        }
                         val p = layout.pages[pageIndex]
                         val onReorder: (Int, Int) -> Unit = { from, to ->
                             updatePage(pageIndex) { pg -> pg.copy(widgets = pg.widgets.toMutableList().also { ws -> ws.add(to, ws.removeAt(from)) }) }
@@ -438,14 +451,31 @@ private fun Dock(nav: NavController, onHome: () -> Unit, modifier: Modifier) {
     }
 }
 
+/** One dot per page; with [vehicle] a hollow one after them for the Vehicle page a last swipe leads to. */
 @Composable
-private fun PageDots(count: Int, current: Int) {
+private fun PageDots(count: Int, current: Int, vehicle: Boolean = false) {
     val cs = MaterialTheme.colorScheme
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         repeat(count) { i ->
             val w by animateFloatAsState(if (i == current) 22f else 8f, label = "dot")
             Box(Modifier.width(w.dp).height(8.dp).clip(CircleShape)
                 .background(if (i == current) cs.primary else cs.onSurface.copy(alpha = 0.2f)))
+        }
+        if (vehicle) Box(Modifier.size(8.dp).clip(CircleShape).border(1.dp, cs.onSurface.copy(alpha = 0.35f), CircleShape))
+    }
+}
+
+/** What the pager shows past its last page while the swipe settles and the Overview opens. */
+@Composable
+private fun VehicleHandoff(modifier: Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val r = LocalStyle.current.panelRadius
+    Panel(modifier, shape = RoundedCornerShape(topEnd = r, bottomEnd = r)) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Rounded.Speed, null, tint = cs.primary, modifier = Modifier.size(36.dp))
+                Text("Vehicle", style = MaterialTheme.typography.titleMedium, color = cs.onSurface)
+            }
         }
     }
 }
@@ -639,10 +669,13 @@ private fun WidgetGrid(
                     placeCells(widgets, cols, (widthPx - gapPx * (cols - 1)) / cols, rowH, gapPx)
                 }
                 PageKind.BENTO -> if (portrait) {
-                    // half as many columns; every card keeps its shape, the page scrolls
+                    // Half as many columns, each a little wider than landscape's, and rows about 1.4×
+                    // as tall: a card keeps its column span and takes 0.75× its row span (a square card
+                    // five rows, a small one two), so it comes out at about its landscape size and
+                    // reflows its content rather than squashing it. The page scrolls.
                     val cols = 6
                     val unitW = (widthPx - gapPx * (cols - 1)) / cols.toFloat()
-                    packBento(widgets, cols, unitW, unitW * 0.55f, gapPx.toFloat()) { s -> ((s.w + 1) / 2) to s.h }
+                    packBento(widgets, cols, unitW, unitW * 0.55f, gapPx.toFloat()) { s -> s.w.coerceAtMost(cols) to (s.h * 0.75f).roundToInt().coerceAtLeast(1) }
                 } else {
                     val cols = 12
                     packBento(widgets, cols, (widthPx - gapPx * (cols - 1)) / cols.toFloat(), (heightPx - gapPx * 11) / 12f, gapPx.toFloat()) { s -> s.w to s.h }

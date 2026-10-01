@@ -15,14 +15,13 @@ object PaintColours {
     /** Chris's deep blue — placeholder until his exact hex arrives (also the Prefs default). */
     val DEFAULT: Int = Prefs.DEFAULT_PAINT
 
+    /** The five orderable Shark 6 colours, sampled from the dealer configurator. "Red" keeps its name until the official one is known. */
     val swatches: List<PaintSwatch> = listOf(
         PaintSwatch("Deep Sea Blue", DEFAULT),
-        PaintSwatch("Arctic White", 0xFFE8EBEE.toInt()),
-        PaintSwatch("Cosmos Black", 0xFF1B1D21.toInt()),
-        PaintSwatch("Harbour Grey", 0xFF8C9298.toInt()),
-        // extras, not BYD colours
-        PaintSwatch("Outback Red", 0xFFA8232B.toInt()),
-        PaintSwatch("Gum Green", 0xFF3E6B4F.toInt()),
+        PaintSwatch("Arctic White", 0xFFDCDFE3.toInt()),
+        PaintSwatch("Harbour Grey", 0xFF9C9B96.toInt()),
+        PaintSwatch("Cosmos Black", 0xFF121418.toInt()),
+        PaintSwatch("Red", 0xFF8F3328.toInt()),
     )
 
     fun byName(name: String): PaintSwatch? = swatches.firstOrNull { it.name == name }

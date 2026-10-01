@@ -109,8 +109,8 @@ object InclinoArt {
  */
 @Composable
 fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modifier = Modifier, art: TiltArt? = null,
-                /** The shell's paint for a tintable set's flat view; the photos take none. */
-                tint: ColorFilter? = null) {
+                /** The shell's paint for a tintable set's flat view, and how much of its clearcoat to add; the photos take none. */
+                tint: ColorFilter? = null, specGain: Float = 1f) {
     val cs = MaterialTheme.colorScheme
     val ctx = LocalContext.current
     val picture = remember(view, art) { art ?: InclinoArt.get(ctx, view) }
@@ -154,7 +154,7 @@ fun VehicleTilt(view: VehicleView, degrees: Float, accent: Color, modifier: Modi
                     drawImage(img, dstOffset = at, dstSize = sz, filterQuality = FilterQuality.High)
                     // a split shell's paint panels: tinted base, then the clearcoat added
                     picture.paintBase?.let { drawImage(it, dstOffset = at, dstSize = sz, filterQuality = FilterQuality.High, colorFilter = tint) }
-                    picture.paintSpec?.let { drawImage(it, dstOffset = at, dstSize = sz, filterQuality = FilterQuality.High, blendMode = BlendMode.Plus) }
+                    picture.paintSpec?.let { drawImage(it, dstOffset = at, dstSize = sz, alpha = specGain, filterQuality = FilterQuality.High, blendMode = BlendMode.Plus) }
                 } else {
                     shapes.draw(this, cs)
                 }

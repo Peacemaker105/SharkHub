@@ -112,7 +112,7 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("live_scene_pending", false)
         set(v) = sp.edit().putBoolean("live_scene_pending", v).commit().let { }
 
-    /** The live scene's orbit camera: azimuth / elevation in degrees and a zoom factor (1 = the plate framing). */
+    /** The live scene's orbit camera (shared by the Vehicle page and the stage): azimuth / elevation in degrees and a zoom factor. */
     var liveAzimuth: Float
         get() = sp.getFloat("live_az", DEFAULT_LIVE_AZ)
         set(v) = sp.edit().putFloat("live_az", v).apply()
@@ -123,16 +123,22 @@ class Prefs(ctx: Context) {
         get() = sp.getFloat("live_zoom", DEFAULT_LIVE_ZOOM)
         set(v) = sp.edit().putFloat("live_zoom", v).apply()
 
-    /** Where the truck scene is pinched to: a factor on the cover fit (0.5–1.2) and a pan in screen px. */
-    var sceneZoom: Float
-        get() = sp.getFloat("scene_zoom", DEFAULT_ZOOM)
-        set(v) = sp.edit().putFloat("scene_zoom", v).apply()
-    var scenePanX: Float
-        get() = sp.getFloat("scene_pan_x", 0f)
-        set(v) = sp.edit().putFloat("scene_pan_x", v).apply()
-    var scenePanY: Float
-        get() = sp.getFloat("scene_pan_y", 0f)
-        set(v) = sp.edit().putFloat("scene_pan_y", v).apply()
+    /**
+     * Where a scene page is pinched to — [SCENE_OVERVIEW] and [SCENE_STAGE] each keep their own: a
+     * factor on the cover fit (0.5–1.2) and a pan in screen px. The single keys the first build wrote
+     * count as the Overview's.
+     */
+    fun sceneCamera(page: String): Triple<Float, Float, Float> {
+        val legacy = page == SCENE_OVERVIEW
+        return Triple(
+            sp.getFloat("scene_zoom_$page", if (legacy) sp.getFloat("scene_zoom", DEFAULT_ZOOM) else DEFAULT_ZOOM),
+            sp.getFloat("scene_pan_x_$page", if (legacy) sp.getFloat("scene_pan_x", 0f) else 0f),
+            sp.getFloat("scene_pan_y_$page", if (legacy) sp.getFloat("scene_pan_y", 0f) else 0f),
+        )
+    }
+
+    fun setSceneCamera(page: String, zoom: Float, panX: Float, panY: Float) =
+        sp.edit().putFloat("scene_zoom_$page", zoom).putFloat("scene_pan_x_$page", panX).putFloat("scene_pan_y_$page", panY).apply()
 
     /**
      * Which side of the screen the driver's climate zone sits on. Until chosen in Options it's
@@ -174,10 +180,12 @@ class Prefs(ctx: Context) {
         const val DEFAULT_STYLE = "auto"
         const val DEFAULT_HOME_LAYOUT = "bento_stage"
         const val DEFAULT_HOME_BACKDROP = "waves"
-        /** Chris's Deep Sea Blue, sampled from his own head unit. */
-        val DEFAULT_PAINT: Int = 0xFF2B4566.toInt()
+        /** Deep Sea Blue as the dealer configurator shows it (the day plate's clearcoat makes any colour read lighter). */
+        val DEFAULT_PAINT: Int = 0xFF203450.toInt()
         /** The cover fit was "a little too zoomed in"; this needs the wide plates, and clamps up to 1 without them. */
         const val DEFAULT_ZOOM = 0.85f
+        const val SCENE_OVERVIEW = "overview"
+        const val SCENE_STAGE = "stage"
         /** The live camera's home: today's plate view (render_v2: az 235 / el 9 / fov 32) at the plate's zoom 0.85. */
         const val DEFAULT_LIVE_AZ = 235f
         const val DEFAULT_LIVE_EL = 9f

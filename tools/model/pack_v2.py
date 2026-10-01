@@ -347,7 +347,8 @@ def shell_image(od, meta, t):
     if t.get("paintSpec") and paint.get("tintable"):
         spec = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         spec.paste(Image.open(os.path.join(od, t["paintSpec"]["file"])).convert("RGBA"), (int(t["paintSpec"]["x"]), int(t["paintSpec"]["y"])))
-        a = spec.getchannel("A")
+        gain = float(paint.get("specGain", 1.0))
+        a = spec.getchannel("A").point(lambda v: int(v * gain))   # the app adds the clearcoat at paint.specGain
         lit = Image.merge("RGB", tuple(ImageChops.multiply(c, a) for c in spec.split()[:3]))   # premultiplied, then added
         rgb = ImageChops.add(Image.merge("RGB", out.split()[:3]), lit)
         out = Image.merge("RGBA", (*rgb.split(), out.getchannel("A")))

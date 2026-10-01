@@ -40,7 +40,7 @@ class LiveInput {
     @Volatile var tilt = false
     @Volatile var energyLens = false
     @Volatile var time: TimeOfDay = TimeOfDay.DAY
-    @Volatile var paint: Color = Color(0xFF2B4566)
+    @Volatile var paint: Color = Color(com.chris.sharkhub.data.Prefs.DEFAULT_PAINT)
     @Volatile var primary: Color = Color.White
     @Volatile var tertiary: Color = Color.White
     @Volatile var camera = LiveCamera()
@@ -158,8 +158,9 @@ class LiveScene private constructor(private val app: Context, private val meta: 
             travelM = (travelM + mps * dt) % 6000f
             world.scroll(travelM)
         }
-        // the car reports the steering wheel in tenths of a degree; ÷10 then a cue, not a measure, clamped at full lock
-        val steer = (inp.steeringDeg / 10f).coerceIn(-35f, 35f)
+        // steeringDeg is the steering wheel in degrees (CarManager already divides the car's tenths); the
+        // road wheels follow it 1:1 as a visual cue, clamped at full lock — a steering ratio can go here if it reads as too much
+        val steer = inp.steeringDeg.coerceIn(-35f, 35f)
         truck.setWheels(wheelRad, steer)
 
         // lamps, 1.3 Hz indicators

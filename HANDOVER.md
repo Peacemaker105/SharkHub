@@ -103,6 +103,19 @@ Shell), scene motion while driving (capture looked sharp at 81 km/h — check th
 - Next on-car: install `app-debug.apk` (98 MB, versionCode 2 — bump before a release), check the
   items above, flick indicators/headlights to confirm `getTurnLightState` / headlight codes, the
   inclinometer zero (read 15° parked), then OverDrive.
+- **Round 4 (afternoon, from Chris's drive) — BUILT, NOT ON THE CAR:** steering ÷10 (the car
+  reports tenths), Fuel card rows, ENVIRONMENT card → ELECTRIC SYSTEM (cards tap to their lens,
+  heading moved to the readings row), a third left-swipe on Home opens the Vehicle page, stage
+  Climate card with both zones' −/+ and seat heat/vent pills, bevelled SOC thumb, Climate seats
+  reclined with wavy air ribbons and the figure leaning back, pinch memory per page, portrait
+  gauges stay round, paint swatches = the five factory colours (Deep Sea Blue #203450 default,
+  Arctic White, Harbour Grey, Cosmos Black, Red), `paint.specGain` 0.35 so day colours stay dark.
+  Render side: depth pre-pass fixed the far-side paint showing through the windows; plate without
+  the Armco rail + dashed line so the app's moving markings run at speed. Install + check next.
+- **Live 3D (Filament) prototype** is being built by an agent in a worktree under
+  `.claude/worktrees/` (gitignored): `ui/overview/live/LiveCarScene` on `ModelViewer`, two-finger
+  orbit, pinch, live paint, lamps, wheel spin, x-ray driveline, pre-rendered scene as fallback.
+  Merge into `main` only after its report; the car build happens in the main checkout.
 - **Rage Mode chassis in (later the same morning):** BYD's own driveline from the Rage Mode scene
   is now the x-ray `drive` layer of the private pack (placed from the kzb's prefab instances,
   fitted to the PA truck to 2 mm; driveline-only GLB + `wheel_params_rage_drive.json` in

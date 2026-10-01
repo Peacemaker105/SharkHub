@@ -123,6 +123,9 @@ import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.draw.shadow
 import com.chris.sharkhub.ui.overview.CarArtState
 import com.chris.sharkhub.ui.overview.CarPhotoScene
 import com.chris.sharkhub.ui.overview.SceneState
@@ -348,19 +351,21 @@ private fun FuelRangeControls(s: DashScope, log: FuelLog) {
     val avg = FuelLog.averageL100(entries)
     val range = FuelLog.calculatedRangeKm(entries, s.tele.fuelPercent)
     var dialog by remember { mutableStateOf(false) }
+    val rangeText = range?.let { "${it.roundToInt()} km" } ?: when (entries.size) { 0 -> "2 more fills"; 1 -> "1 more fill"; else -> "—" }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f)) {
-                SectionLabel("Calc. range")
-                Text(
-                    range?.let { "${it.roundToInt()} km" } ?: when (entries.size) { 0 -> "2 more fills"; 1 -> "1 more fill"; else -> "—" },
-                    style = if (range != null) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
-                    color = if (range != null) cs.onSurface else cs.onSurfaceVariant, maxLines = 1,
-                )
+        // Labels on one row, values on the next, equal columns with a real gap and the same styles,
+        // so the pair keeps its baselines at the head unit's larger font scale.
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // short labels and a modest value style: the columns are ~70 dp and the unit runs its font at 1.3×
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SectionLabel("Calc.", Modifier.weight(1f))
+                SectionLabel("Avg", Modifier.weight(1f))
             }
-            Column(horizontalAlignment = Alignment.End) {
-                SectionLabel("Average")
-                Text(avg?.let { "%.1f L".format(it) } ?: "—", style = MaterialTheme.typography.titleMedium, color = cs.onSurface, maxLines = 1)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+                Text(rangeText, style = MaterialTheme.typography.titleSmall, color = if (range != null) cs.onSurface else cs.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(avg?.let { "%.1f L".format(it) } ?: "—", style = MaterialTheme.typography.titleSmall, color = cs.onSurface,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
         }
         Row(
@@ -551,6 +556,7 @@ private fun Numpad(decimal: Boolean, onKey: (Char) -> Unit) {
  * SOC save (the engine keeps the battery at a target) and the target itself, under the battery
  * ring. The switch is sent as-is; the slider sends when you let go, snapped to fives.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)   // the Slider overload that takes its own thumb and track
 @Composable
 private fun SocSaveControls(s: DashScope) {
     val cs = MaterialTheme.colorScheme
@@ -567,6 +573,9 @@ private fun SocSaveControls(s: DashScope) {
             Text(shown?.let { "$it${range.unit}" } ?: "—", style = MaterialTheme.typography.titleMedium,
                 color = if (on) cs.primary else cs.onSurface, maxLines = 1)
         }
+        // Material's track leaves a gap either side of its thumb; this one runs continuously under
+        // a bevelled thumb that still reads as something to grab.
+        val interaction = remember { MutableInteractionSource() }
         Slider(
             value = dragging ?: (target ?: range.min).toFloat(),
             onValueChange = { if (!s.editing) dragging = it },
@@ -574,13 +583,36 @@ private fun SocSaveControls(s: DashScope) {
             valueRange = range.min.toFloat()..range.max.toFloat(),
             steps = (range.max - range.min) / range.step - 1,
             enabled = !s.editing,
+            interactionSource = interaction,
             modifier = Modifier.fillMaxWidth().height(36.dp),
+            thumb = { BevelThumb() },
+            track = { st ->
+                SliderDefaults.Track(sliderState = st, modifier = Modifier.height(6.dp), thumbTrackGapSize = 0.dp, drawStopIndicator = null,
+                    colors = SliderDefaults.colors(activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent))
+            },
         )
         SectionLabel("Target ${range.min}–${range.max}${range.unit}")
     }
 }
 
-/** A small 270° gauge that sweeps to its value — the instrument-cluster feel in one glance. */
+/** A slider thumb with a bevel: lit on top, shaded below, a hairline highlight and a soft drop shadow — theme colours only. */
+@Composable
+private fun BevelThumb() {
+    val cs = MaterialTheme.colorScheme
+    Box(
+        Modifier.size(22.dp)
+            .shadow(4.dp, CircleShape, clip = false, ambientColor = cs.background, spotColor = cs.background)
+            .clip(CircleShape)
+            .background(Brush.verticalGradient(listOf(
+                androidx.compose.ui.graphics.lerp(cs.primary, cs.onPrimary, 0.38f), cs.primary, androidx.compose.ui.graphics.lerp(cs.primary, cs.background, 0.38f))))
+            .border(1.dp, Brush.verticalGradient(listOf(cs.onSurface.copy(alpha = 0.75f), Color.Transparent, cs.background.copy(alpha = 0.5f))), CircleShape),
+    )
+}
+
+/**
+ * A small 270° gauge that sweeps to its value — the instrument-cluster feel in one glance. Always a
+ * circle: it sizes by the smaller dimension and centres, so a narrow portrait cell can't squash it.
+ */
 @Composable
 fun ArcGauge(fraction: Float?, color: Color, modifier: Modifier = Modifier, stroke: Float = 4f) {
     val cs = MaterialTheme.colorScheme
@@ -588,11 +620,12 @@ fun ArcGauge(fraction: Float?, color: Color, modifier: Modifier = Modifier, stro
     val track = cs.onSurface.copy(alpha = 0.12f)
     Canvas(modifier) {
         val sw = stroke.dp.toPx()
-        val inset = sw / 2
-        val sz = Size(size.width - sw, size.height - sw)
-        drawArc(track, 135f, 270f, false, Offset(inset, inset), sz, style = Stroke(sw, cap = StrokeCap.Round))
+        val d = kotlin.math.min(size.width, size.height) - sw
+        val tl = Offset((size.width - d) / 2f, (size.height - d) / 2f)
+        val sz = Size(d, d)
+        drawArc(track, 135f, 270f, false, tl, sz, style = Stroke(sw, cap = StrokeCap.Round))
         if (fraction != null) {
-            drawArc(color, 135f, 270f * f, false, Offset(inset, inset), sz, style = Stroke(sw, cap = StrokeCap.Round))
+            drawArc(color, 135f, 270f * f, false, tl, sz, style = Stroke(sw, cap = StrokeCap.Round))
         }
     }
 }
@@ -769,28 +802,62 @@ private fun ClimateWidget(s: DashScope, size: WidgetSize, modifier: Modifier) {
                 FanRow(s)
                 ClimateChips(s, all = true)
             }
-            else -> Row(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.SpaceBetween) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Rounded.Thermostat, null, tint = cs.primary, modifier = Modifier.size(20.dp))
-                        SectionLabel("Climate", Modifier.weight(1f))
-                        MiniToggle("A/C", c.ac, cs.tertiary) { if (!s.editing) s.car.setAcOn(!c.ac) }
-                        MiniToggle("Fan ${c.fan}", c.fan > 0, cs.primary) { if (!s.editing) s.car.setFanSpeed((c.fan + 1) % (ClimateState.MAX_FAN + 1)) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        Column { SectionLabel(Zone.DRIVER.label); ZoneTemp(Zone.DRIVER, s, big = false) }
-                        Column { SectionLabel(Zone.PASSENGER.label); ZoneTemp(Zone.PASSENGER, s, big = false) }
-                    }
+            else -> Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Thermostat, null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                    SectionLabel("Climate", Modifier.weight(1f))
+                    MiniToggle("A/C", c.ac, cs.tertiary) { if (!s.editing) s.car.setAcOn(!c.ac) }
+                    MiniToggle("Fan ${c.fan}", c.fan > 0, cs.primary) { if (!s.editing) s.car.setFanSpeed((c.fan + 1) % (ClimateState.MAX_FAN + 1)) }
                 }
-                // the buttons drive the driver's zone; the passenger follows while synced
-                val temp = c.temp(Zone.DRIVER)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    RoundIconButton(Icons.Rounded.Add, "Warmer", size = 40.dp) { if (!s.editing) s.car.setZoneTemp(Zone.DRIVER, temp + 1f) }
-                    RoundIconButton(Icons.Rounded.Remove, "Cooler", size = 40.dp) { if (!s.editing) s.car.setZoneTemp(Zone.DRIVER, temp - 1f) }
+                // each zone with its own − / +, the driver on the driving side, and both seats' heat / vent under them
+                val (left, right) = if (s.driverOnRight) Zone.PASSENGER to Zone.DRIVER else Zone.DRIVER to Zone.PASSENGER
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ZoneRow(left, s, Modifier.weight(1f))
+                    ZoneRow(right, s, Modifier.weight(1f))
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SeatMini(left, s, Modifier.weight(1f))
+                    SeatMini(right, s, Modifier.weight(1f))
                 }
             }
         }
+    }
+}
+
+/** A zone's temperature with its own − / + beside it, for the stage card. */
+@Composable
+private fun ZoneRow(zone: Zone, s: DashScope, modifier: Modifier) {
+    val temp = s.climate.temp(zone)
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.weight(1f)) { SectionLabel(zone.label); ZoneTemp(zone, s, big = false) }
+        RoundIconButton(Icons.Rounded.Remove, "Cooler", size = 34.dp) { if (!s.editing) s.car.setZoneTemp(zone, temp - 1f) }
+        RoundIconButton(Icons.Rounded.Add, "Warmer", size = 34.dp) { if (!s.editing) s.car.setZoneTemp(zone, temp + 1f) }
+    }
+}
+
+/** A seat's heat and vent as two compact pills — icon plus level dots; each tap steps 1 → 2 → off. */
+@Composable
+private fun SeatMini(zone: Zone, s: DashScope, modifier: Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val seat = s.climate.seat(zone)
+    val next = { level: Int -> (level + 1) % (ClimateState.MAX_SEAT_LEVEL + 1) }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        SeatPill(ShIcons.SeatHeat, seat.heat, cs.error, Modifier.weight(1f)) { if (!s.editing) s.car.setSeatHeat(zone, next(seat.heat)) }
+        SeatPill(ShIcons.SeatVent, seat.vent, cs.tertiary, Modifier.weight(1f)) { if (!s.editing) s.car.setSeatVent(zone, next(seat.vent)) }
+    }
+}
+
+@Composable
+private fun SeatPill(icon: ImageVector, level: Int, color: Color, modifier: Modifier, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val active = level > 0
+    val bg by animateColorAsState(if (active) color.copy(alpha = 0.14f) else cs.onSurface.copy(alpha = 0.07f), label = "seatBg")
+    Row(
+        modifier.clip(CircleShape).background(bg).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, null, tint = if (active) color else cs.onSurfaceVariant, modifier = Modifier.size(16.dp))
+        LevelDots(level, ClimateState.MAX_SEAT_LEVEL, color)
     }
 }
 

@@ -799,6 +799,21 @@ async function capture(name, full = false, render = true) {
   return { x: x0, y: y0, w: cw, h: ch };
 }
 async function saveJson(name, obj) { await fetch('/save?name=' + encodeURIComponent(name), { method: 'POST', body: JSON.stringify(obj, null, 1) }); }
+// A shell layer where some parts write colour and the rest only depth can't trust the draw order
+// (three groups opaque draws by shader program, so the far door's paint was drawn before the near
+// window and the door trim had written their depth — and showed through the glass). A depth
+// pre-pass of every opaque part first, then the layer's own pass on top of that depth (LessEqual),
+// settles it: a fragment only lands if nothing opaque is nearer. Clear parts (glass, lamp covers)
+// stay out of the pre-pass, so the interior is still seen through the windows.
+async function captureShell(name, mode) {
+  setBodyMode('depth');
+  const clear = bodyMeshes.filter((o) => o.userData.solid && o.userData.solid.transparent);
+  for (const o of clear) o.visible = false;
+  renderer.autoClear = true; renderer.clear(); renderer.render(scene, camera);
+  setBodyMode(mode);   // restores visibility too
+  renderer.autoClear = false; renderer.render(scene, camera); renderer.autoClear = true;
+  return capture(name, false, false);
+}
 // quick look: the current frame (over a dark background) scaled down and saved as JPEG — for iterating on lighting without screenshots
 window.snap = async (name = 'snap', scale = 0.5, bg = '#0b1118') => {
   const c = document.createElement('canvas'); c.width = Math.round(W * scale); c.height = Math.round(H * scale);
@@ -834,9 +849,9 @@ async function renderViews(meta, time = 'day') {
     sun.position.copy(dir).multiplyScalar(40);
     frameView(v);
     show('body'); setWheelMode('solid'); setSpin(0); setLamps('off');
-    setBodyMode('rest'); const crop = await capture(`${TAG}_view_${name}`);
-    setBodyMode('paintBase'); const baseCrop = await capture(`${TAG}_view_${name}_paint_base`);
-    setBodyMode('paintSpec'); const specCrop = await capture(`${TAG}_view_${name}_paint_spec`);
+    const crop = await captureShell(`${TAG}_view_${name}`, 'rest');
+    const baseCrop = await captureShell(`${TAG}_view_${name}_paint_base`, 'paintBase');
+    const specCrop = await captureShell(`${TAG}_view_${name}_paint_spec`, 'paintSpec');
     setBodyMode('solid'); setLamps(t.lamps || 'day');
     const side = name === 'side';
     const zNear = v.az === 180 ? -tr : v.az === 0 ? tr : 0;
@@ -866,7 +881,11 @@ window.renderAll = async (opts = {}) => {
   meta.metresPerUnit = MPU;
   meta.model = { name: rig.name || rig.model.split('/').pop(), up: rig.up, toMetres: rig.toMetres, unitScale: S, bbox: { min: box3.min.toArray(), max: box3.max.toArray() } };
   // hex = the preview colour only; the app tints paintBase by its own choice ÷ neutral
-  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default'), tintable: true, neutral: hex(PAINT_NEUTRAL) };
+  // specGain: how much of the clearcoat layer the app adds back (by day the reflections of a bright
+  // sky otherwise wash a dark colour out to a pale one — measured on the unit: Deep Sea Blue's door
+  // read (159, 182, 214) at full strength)
+  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default'), tintable: true, neutral: hex(PAINT_NEUTRAL),
+    specGain: rig.paint && rig.paint.specGain != null ? rig.paint.specGain : 1 };
   meta.camera = { position: camera.position.toArray(), target: centre.toArray(), fov: camera.fov, aspect: W / H };
   meta.files = { body: `${TAG}_body.png`, bodySolid: `${TAG}_body_solid.png`, paintBase: `${TAG}_paint_base.png`, paintSpec: `${TAG}_paint_spec.png`, drive: `${TAG}_drive.png`, bg: null, wheels: {} };
   meta.times = {};
@@ -877,9 +896,9 @@ window.renderAll = async (opts = {}) => {
   const shellLayers = async (prefix) => {
     show('body'); setWheelMode('shadow'); setLamps('off');
     const out = {};
-    setBodyMode('rest'); out.bodySolid = await capture(`${prefix}_body_solid`);
-    setBodyMode('paintBase'); out.paintBase = await capture(`${prefix}_paint_base`);
-    setBodyMode('paintSpec'); out.paintSpec = await capture(`${prefix}_paint_spec`);
+    out.bodySolid = await captureShell(`${prefix}_body_solid`, 'rest');
+    out.paintBase = await captureShell(`${prefix}_paint_base`, 'paintBase');
+    out.paintSpec = await captureShell(`${prefix}_paint_spec`, 'paintSpec');
     setBodyMode('solid'); setLamps(TIMES[currentTime].lamps || 'day');
     return out;
   };
