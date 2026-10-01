@@ -1,0 +1,49 @@
+{
+  "name": "BYD Shark 6 (PA_RTL, from the head unit's My Car app)",
+  "model": "/byd_car_pa_rtl.glb",
+  "up": "z",
+  "toMetres": 1.08,
+  "metresPerUnit": 2.88,
+  "hide": ["skyball", "yuanguangdeng", "juanguangdeng", "Lamps_zhedang", "Others_Int_bg", "Others_Ext_sump_int", "Object001"],
+  "ghostHide": ["HoodinEngine", "Interior_", "Others_Int_black", "lf_door_int", "lr_door_int", "rf_door_int", "rr_door_int"],
+  "wheels": {
+    "FL": { "part": "wheel_01_LF", "hub": [-1.558, -0.760, 0.370] },
+    "FR": { "part": "wheel_01_RF", "hub": [-1.558,  0.760, 0.370] },
+    "RL": { "part": "wheel_01_LR", "hub": [ 1.461, -0.760, 0.370] },
+    "RR": { "part": "wheel_01_RR", "hub": [ 1.461,  0.760, 0.370] }
+  },
+  "fixedWheelSuffix": "_kq",
+  "tyreRadius": 0.368,
+  "tubParts": ["_dou"],
+  "skidParts": ["others_ext_body_chome"],
+  "lampCoverParts": ["Lamps_glass"],
+  "underbody": [],
+  "paint": { "linear": [0.634, 0.741, 0.861], "name": "BYD base colour (preview only; the app tints the panels itself)", "specGain": 0.35 },
+  "chassis": { "model": "/byd_car_rage_drive_yup.glb", "params": "/wheel_params_rage_drive.json", "flip": false, "wheelCut": false },
+  "textures": {
+    "base": "/pa_rtl_textures_png/",
+    "flipY": true,
+    "tyreMap": "PA_tire1.png",
+    "ao": { "paint": "PA_ao_gray.png", "plastic": "PA_suliao_ao_gray.png", "tub": "PA_dou_ao_gray.png" },
+    "flakeNormal": null,
+    "flakeRepeat": 40,
+    "panos": {
+      "day":   { "file": "pano_day.png" },
+      "dusk":  { "file": "pano_dusk.png" },
+      "night": { "file": "pano_night.png" }
+    },
+    "panoDefaults": { "horizon": 0.25, "degrees": 360, "heading": 185, "vscale": 2.2, "radius": 900 },
+    "envCubes": {
+      "showroom": { "prefix": "/rage_hdr/ShowroomSpecularHDR.dds_", "suffix": "_256x256.png.hdr" },
+      "traction": { "prefix": "/rage_hdr/TractionHDR240918SpecularHDR.dds_", "suffix": "_512x512.png.hdr" },
+      "climb":    { "prefix": "/rage_hdr/ClimbHDR250107SpecularHDR.dds_", "suffix": "_256x256.png.hdr" }
+    }
+  },
+  "scenery": { "centreLine": "dashed", "rail": true, "far": "plain" },
+  "times": {
+    "day":   { "pano": null, "ridge": "#4d6a3c", "ridgeLit": "#9cb96f", "hemi": { "sky": "#cfe3ff", "ground": "#5e6a44", "intensity": 0.5 }, "fog": { "color": "#c9d6dc", "near": 160, "far": 1100 }, "skyGain": [0.42, 0.58, 0.92] },
+    "dawn":  { "pano": null, "ridge": "#4a5a44", "ridgeLit": "#b39a72", "fog": { "near": 90, "far": 800 } },
+    "dusk":  { "pano": null, "ridge": "#3c4a36", "ridgeLit": "#b57a52", "fog": { "near": 90, "far": 800 } },
+    "night": { "pano": null, "ridge": "#0c1410", "ridgeLit": "#1a2a1e" }
+  }
+}
