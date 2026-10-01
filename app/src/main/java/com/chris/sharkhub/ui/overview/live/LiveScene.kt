@@ -105,10 +105,12 @@ class LiveScene private constructor(private val app: Context, private val meta: 
                 val driveGlb = withContext(Dispatchers.IO) { readAsset(meta.drive) }
                 val driveAsset = truck.createDrive(driveGlb)
                 if (driveAsset != null) truck.enqueue(driveAsset, driveGlb, withContext(Dispatchers.IO) { readFiles(driveAsset.resourceUris) })
-                Log.i(LiveSupport.TAG, "live scene assets parsed; resources loading")
+                Log.w(LiveSupport.TAG, "live scene assets parsed; resources loading (radius %.2f m, centre %.2f %.2f %.2f)".format(truck.boundingRadius, truck.centre[0], truck.centre[1], truck.centre[2]))
             } catch (e: Throwable) {
                 Log.e(LiveSupport.TAG, "live scene failed to load", e)
                 _status.value = LiveStatus.FAILED
+                // a caught failure is not a crash: the guard must not switch the scene off at the next start
+                com.chris.sharkhub.data.Prefs(app).liveScenePending = false
             }
         }
     }

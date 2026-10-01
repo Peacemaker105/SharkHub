@@ -73,10 +73,11 @@ object LiveSupport {
 
     private fun compute(ctx: Context): Boolean {
         val assets = runCatching { ctx.assets.list(DIR)?.toList().orEmpty() }.getOrDefault(emptyList())
-        if (META !in assets) { Log.i(TAG, "live scene off: no $DIR/$META in the build"); return false }
+        // W level throughout the live scene: the head unit's logcat keeps no info-level lines
+        if (META !in assets) { Log.w(TAG, "live scene off: no $DIR/$META in the build"); return false }
         // Filament's JNI libraries: present in the APK for arm64 only; absent on the JVM (UnsatisfiedLinkError, an Error, hence Throwable)
         val native = runCatching { com.google.android.filament.utils.Utils.init(); true }.getOrElse { e ->
-            Log.i(TAG, "live scene off: Filament didn't load (${e.javaClass.simpleName}: ${e.message})"); false
+            Log.w(TAG, "live scene off: Filament didn't load (${e.javaClass.simpleName}: ${e.message})"); false
         }
         return native
     }

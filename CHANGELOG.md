@@ -92,6 +92,24 @@ with the plates kept as the fallback and the Paparazzi path.
   the pano's heading (mirror / rotation vs the plates); the energy-pipe flow animation and the lamp
   halos are not done; the showroom HDR (`env_showroom.hdr`) is packed but unused — try it for day
   if the pano-built IBL looks flat on the paint.
+- **PARKED after the first on-car run** (Chris is back on the plates; `Prefs.liveScene` stays
+  available but the work stops here). What the unit showed (Tyres lens, night, moving): the scene
+  renders and the Tyres callouts + ground plates track the anchors, but the truck was a flat black
+  silhouette (only the lamp emissives showed), the backdrop cylinder read far too big / close (one
+  mountain across the top half, horizon ~40 % down, a band of pale "snow dots" — the strip's
+  unmipmapped water rows — lower left), the ground was a flat dark-blue plane with a big dark patch
+  under the truck (no road / verge), and no frame times could be read because this unit's logcat
+  keeps no info-level lines. Filament had also refused `generateMipmaps()` on the first start
+  (textures need `Texture.Usage.GEN_MIPMAPPABLE`), which made the load fail and fall back. **Done
+  before parking — diagnostics added:** every live-scene log line is now W level (`adb logcat -s
+  LiveCarScene:W`); `GEN_MIPMAPPABLE` on mipmapped textures; a caught load failure clears
+  `liveScenePending`; the IBL path logs each step (file size, equirect / cube / reflections sizes,
+  lux) and a flat one-band spherical-harmonics ambient stands in when it fails, so the truck can't be
+  unlit for lack of an environment; `applyTime` logs sun / IBL / exposure / fog; the body log lists
+  the material names found, the lamp-material count and the wheel part counts; `setPaint` logs
+  whether the `paint` material exists; ground textures and the pano (now mipmapped + anisotropic)
+  log their sizes; the surface size is logged. Not done: the night-exposure / backdrop-scale /
+  ground-texture findings themselves — HANDOVER's live-scene section has the analysis and next steps.
 - **Merged with round 4** (`6dbcc51`): the live wiring sits on the round-4 `OverviewScreen` /
   `DashboardScreen` / `SceneSettings` / `Prefs` (per-page `sceneCamera`, factory swatches, the
   Scene-motion subtitle all kept; the Truck row got a subtitle in the same style; the legacy

@@ -78,6 +78,7 @@ internal class FilamentHost(context: Context) {
             override fun onResized(w: Int, h: Int) {
                 view.viewport = Viewport(0, 0, w, h)
                 width = w; height = h
+                Log.w(LiveSupport.TAG, "surface ${w}x$h")
                 onResize?.invoke(w, h)
             }
         }
@@ -142,7 +143,8 @@ internal class FilamentHost(context: Context) {
         }
         lastFrameNs = frameTimeNanos
         if (frames >= 120) {
-            Log.i(LiveSupport.TAG, "frame %.1f ms avg · %.1f ms max · %d/%d over 20 ms · cpu %.1f ms/frame · %dx%d".format(
+            // W level on purpose: the head unit's logcat drops info lines, and this is the number to read back
+            Log.w(LiveSupport.TAG, "frame %.1f ms avg · %.1f ms max · %d/%d over 20 ms · cpu %.1f ms/frame · %dx%d".format(
                 intervalSumNs / 1e6 / frames, intervalMaxNs / 1e6, slowFrames, frames, cpuSumNs / 1e6 / frames, width, height))
             frames = 0; intervalSumNs = 0L; intervalMaxNs = 0L; slowFrames = 0; cpuSumNs = 0L
         }

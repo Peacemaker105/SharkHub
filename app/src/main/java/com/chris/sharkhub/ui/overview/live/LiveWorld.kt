@@ -200,7 +200,9 @@ internal object LiveTextures {
 
     /** An sRGB (colour) or linear (data) texture from a bitmap, with a full mip chain unless [mipmaps] is false. */
     fun upload(engine: Engine, bmp: Bitmap, srgb: Boolean, mipmaps: Boolean = true): Texture {
-        val tex = Texture.Builder().width(bmp.width).height(bmp.height).levels(if (mipmaps) levelsFor(bmp.width, bmp.height) else 1)
+        // GEN_MIPMAPPABLE is required for generateMipmaps(): without it Filament refused on the head unit and the whole load fell back
+        val usage = if (mipmaps) Texture.Usage.DEFAULT or Texture.Usage.GEN_MIPMAPPABLE else Texture.Usage.DEFAULT
+        val tex = Texture.Builder().width(bmp.width).height(bmp.height).levels(if (mipmaps) levelsFor(bmp.width, bmp.height) else 1).usage(usage)
             .sampler(Texture.Sampler.SAMPLER_2D).format(if (srgb) Texture.InternalFormat.SRGB8_A8 else Texture.InternalFormat.RGBA8).build(engine)
         TextureHelper.setBitmap(engine, tex, 0, bmp)
         if (mipmaps) tex.generateMipmaps(engine)
@@ -210,8 +212,9 @@ internal object LiveTextures {
     fun repeatSampler(): TextureSampler = TextureSampler(TextureSampler.MinFilter.LINEAR_MIPMAP_LINEAR, TextureSampler.MagFilter.LINEAR, TextureSampler.WrapMode.REPEAT).apply { anisotropy = 8f }
     fun clampSampler(mip: Boolean = true): TextureSampler =
         TextureSampler(if (mip) TextureSampler.MinFilter.LINEAR_MIPMAP_LINEAR else TextureSampler.MinFilter.LINEAR, TextureSampler.MagFilter.LINEAR, TextureSampler.WrapMode.CLAMP_TO_EDGE)
-    /** The backdrop strip repeats round the cylinder (u) but must not wrap top to bottom (v). */
-    fun panoSampler(): TextureSampler = TextureSampler(TextureSampler.MinFilter.LINEAR, TextureSampler.MagFilter.LINEAR, TextureSampler.WrapMode.REPEAT).apply { setWrapModeT(TextureSampler.WrapMode.CLAMP_TO_EDGE) }
+    /** The backdrop strip repeats round the cylinder (u) but must not wrap top to bottom (v); mipmapped + anisotropic like render_v2's. */
+    fun panoSampler(): TextureSampler = TextureSampler(TextureSampler.MinFilter.LINEAR_MIPMAP_LINEAR, TextureSampler.MagFilter.LINEAR, TextureSampler.WrapMode.REPEAT)
+        .apply { setWrapModeT(TextureSampler.WrapMode.CLAMP_TO_EDGE); anisotropy = 8f }
 
     private fun grain(bmp: Bitmap, base: IntArray, spread: Int, seed: Int) {
         val r = Random(seed)
@@ -434,6 +437,8 @@ internal class LiveWorld(private val host: FilamentHost, private val materials: 
         gravelMi.setParameter("baseColorMap", LiveTextures.upload(engine, b.gravel, srgb = true), rep)
         shadowMi.setParameter("baseColorMap", LiveTextures.upload(engine, b.shadow, srgb = false), LiveTextures.clampSampler())
         shadowMi.setParameter("baseColorFactor", 0f, 0f, 0f, contactShadow)
+        Log.w(LiveSupport.TAG, "ground textures: road ${b.road.width}x${b.road.height}, earth ${b.earth.width}, gravel ${b.gravel.width}, shadow ${b.shadow.width}; " +
+            "baseColorIndex road=${if (roadMi.material.hasParameter("baseColorIndex")) "param" else "none"}")
         b.road.recycle(); b.earth.recycle(); b.gravel.recycle(); b.shadow.recycle()
     }
 
@@ -462,7 +467,9 @@ internal class LiveWorld(private val host: FilamentHost, private val materials: 
 
     /** Which strip (decoded on IO by the caller) the cylinder wears; swaps the texture on the engine thread. */
     fun setPano(time: TimeOfDay, bitmap: Bitmap) {
-        val tex = LiveTextures.upload(engine, bitmap, srgb = true, mipmaps = false)
+        // mipmapped: the strip is minified below the horizon (its water rows) and sparkles without them
+        val tex = LiveTextures.upload(engine, bitmap, srgb = true, mipmaps = true)
+        Log.w(LiveSupport.TAG, "pano ${time.id}: ${bitmap.width}x${bitmap.height} on a cylinder r %.0f m, h %.0f m (horizon row at eye height)".format(panoRadius, panoHeight))
         bitmap.recycle()
         panoMi.setParameter("baseColorMap", tex, LiveTextures.panoSampler())
         panoTexture?.let { engine.destroyTexture(it) }
@@ -479,20 +486,32 @@ internal class LiveWorld(private val host: FilamentHost, private val materials: 
             .onFailure { Log.w(LiveSupport.TAG, "pano $file", it) }.getOrNull()
     }
 
-    /** The environment for an id in the meta, prefiltered on the GPU once and kept. */
+    /** The environment for an id in the meta, prefiltered on the GPU once and kept; null (logged at W) when any step fails. */
     private fun ibl(ctx: Context, id: String): IndirectLight? {
         ibls[id]?.let { return it }
-        val file = meta.env[id] ?: return null
-        val bytes = runCatching { ctx.assets.open("${LiveSupport.DIR}/$file").use { it.readBytes() } }.getOrNull() ?: return null
+        val file = meta.env[id] ?: run { Log.w(LiveSupport.TAG, "ibl $id: no file in the meta"); return null }
+        val bytes = runCatching { ctx.assets.open("${LiveSupport.DIR}/$file").use { it.readBytes() } }.getOrNull()
+            ?: run { Log.w(LiveSupport.TAG, "ibl $id: $file missing from the assets"); return null }
         val buf = ByteBuffer.allocateDirect(bytes.size).put(bytes).also { it.flip() }
-        val equirect = HDRLoader.createTexture(engine, buf) ?: run { Log.w(LiveSupport.TAG, "env $file won't decode"); return null }
-        val cube = equirectToCube.run(equirect)
-        val reflections = specularFilter.run(cube)
-        engine.destroyTexture(equirect)
-        engine.destroyTexture(cube)
-        val light = IndirectLight.Builder().reflections(reflections).intensity(preset.envLux).build(engine)
-        ibls[id] = light
-        return light
+        val equirect = HDRLoader.createTexture(engine, buf) ?: run { Log.w(LiveSupport.TAG, "ibl $id: $file (${bytes.size} B) won't decode"); return null }
+        return runCatching {
+            val cube = equirectToCube.run(equirect)
+            val reflections = specularFilter.run(cube)
+            engine.destroyTexture(equirect)
+            engine.destroyTexture(cube)
+            val light = IndirectLight.Builder().reflections(reflections).intensity(preset.envLux).build(engine)
+            ibls[id] = light
+            Log.w(LiveSupport.TAG, "ibl $id: $file ${bytes.size} B → equirect ${equirect.getWidth(0)}x${equirect.getHeight(0)} → cube ${cube.getWidth(0)} → reflections ${reflections.getWidth(0)} / ${reflections.levels} levels, ${preset.envLux} lux")
+            light
+        }.onFailure { Log.w(LiveSupport.TAG, "ibl $id: prefilter failed", it) }.getOrNull()
+    }
+
+    /**
+     * What lights the scene when the environment can't: a flat ambient (one-band spherical
+     * harmonics, no reflections) so the truck is never a black silhouette.
+     */
+    private fun ambientFallback(): IndirectLight = ibls.getOrPut("__ambient") {
+        IndirectLight.Builder().irradiance(1, floatArrayOf(1f, 1f, 1f)).intensity(preset.envLux).build(engine)
     }
 
     /** Light the world for [p]: sun, environment, fog, bloom, exposure, the strip's tint and the clear colour. The strip itself is swapped by the caller. */
@@ -505,8 +524,12 @@ internal class LiveWorld(private val host: FilamentHost, private val materials: 
         lm.setColor(li, col[0], col[1], col[2])
         lm.setIntensity(li, p.sunLux)
         lm.setDirection(li, -d[0], -d[1], -d[2])
-        ibl(ctx, p.env)?.let { it.intensity = p.envLux; scene.indirectLight = it }
+        val light = ibl(ctx, p.env) ?: ambientFallback().also { Log.w(LiveSupport.TAG, "ibl ${p.env} unavailable: flat ambient fallback") }
+        light.intensity = p.envLux
+        scene.indirectLight = light
         host.camera.setExposure(p.aperture, p.shutter, p.iso)
+        Log.w(LiveSupport.TAG, "time ${p.pano.id}: sun %.0f lux az %.0f el %.0f dir (%.2f %.2f %.2f) · ibl %s %.0f lux · exposure f/%.0f 1/%.0f ISO %.0f · fog start %.0f density %.3f · bloom %.2f".format(
+            p.sunLux, p.sunAz, p.sunEl, -d[0], -d[1], -d[2], p.env, p.envLux, p.aperture, 1f / p.shutter, p.iso, p.fogStart, p.fogDensity, p.bloom))
         host.view.fogOptions = View.FogOptions().apply {
             enabled = true; distance = p.fogStart; density = p.fogDensity; maximumOpacity = 1f; height = 0f; heightFalloff = 0.02f
             fogColorFromIbl = true; color = floatArrayOf(1f, 1f, 1f); inScatteringStart = 60f; inScatteringSize = 90f

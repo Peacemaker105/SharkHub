@@ -32,10 +32,40 @@ bracket scales come from anchors the renderer projects each frame. **Assets are 
 `python tools\live\prep_live_assets.py` rebuilds `app/src/main/assets/car_private/live/` (28 MB,
 gitignored) from `C:\dev\byd_factory`; without that folder, or with the scene sheet's Truck set to
 Plates, everything falls back to the pre-rendered `CarPhotoScene` (and Paparazzi always does).
-**First on the car:** does it come up at all (logcat tag `LiveCarScene`: "live scene ready", then
-the frame-time lines every ~2 s — the target is 16.7 ms avg at 1920×1080); wheel spin direction and
-steer sign; the Incline tilt signs; day / night exposure against the backdrop (`LiveTimes.kt`); the
-x-ray ghost; two-finger orbit feel (`LiveCamera.DEG_PER_PX`). Details in CHANGELOG 2026-10-01 (live).
+**PARKED (2026-10-01, after the first on-car run — Chris went back to the plates).** Branch
+`worktree-agent-a72d868f3bc6cc6bf`; the pack is at that worktree's `app/src/main/assets/car_private/live/`
+(copy it, or `python tools\live\prep_live_assets.py`). The first run on the unit (Adreno 640, API 30,
+night, moving, Tyres lens) found:
+1. **Truck a flat black silhouette** — only lamp emissives visible. Most likely physics, not a failure:
+   the night preset (`LiveTimes.kt`) has a 2 500 lux sun at az 300 / el 38 (behind the truck's far
+   side, so the camera's flank is in its shadow), an IBL built from the near-black night strip, and
+   an exposure of EV ≈ 12 — dark blue paint lands at ~0.01. Day was not tried. Next: normalise the
+   pano-built `env_*.hdr` to a mean of 1.0 in the prep script so `envLux` means what it says; night
+   `envLux` ~2 500 and exposure ~EV 11 (f/16, 1/30, ISO 400) for a lit flank; a weak point light at
+   the camera as a fill so the visible side is never black; confirm `Irradiance_RoughnessOne` really
+   lights the diffuse when no SH are given (else compute SH). The branch already has the W-level
+   lighting log (`time …: sun … · ibl … lux · exposure …`, `ibl …: … → reflections …`) and the flat
+   ambient fallback — read those lines first.
+2. **Backdrop far too big / close** — one mountain across the top half, horizon ~40 % down, a band of
+   pale dots lower left. The geometry copies render_v2 (r 300 m, h 952 m = vscale 2.2 × strip aspect
+   × 2πr, horizon row at eye height → it should sit 22 % from the top at el 9°), so check first that
+   `placePano` really runs each frame with the eye height and that the UVs are the right way up;
+   then cut `vscale` (2.2 → ~1.0) if the mountains are still huge — the plates' islands are small on
+   the horizon (`car_private/preview_day.png`). The dots were the strip's unmipmapped water rows:
+   the pano is now mipmapped + anisotropic on the branch.
+3. **Ground a flat dark-blue plane, no road / verge, a big dark patch under the truck** — consistent
+   with the ground textures never binding (the `generateMipmaps` refusal happened on that first
+   start; now fixed with `GEN_MIPMAPPABLE`) and with the night exposure. Next: give the road /
+   earth / gravel materials sensible `baseColorFactor`s so they read even untextured, add the
+   contact-shadow quad to the scene only once its texture is installed, and read the `ground
+   textures: …` log line.
+4. **No frame times** — info lines are dropped by this unit's logcat; everything is W level now:
+   `adb logcat -s LiveCarScene:W` → `surface WxH`, `body: … materials […]`, `paint set …`,
+   `time day: sun …`, `ibl day: … → reflections 256 / 5 levels`, `pano day: …`, `ground textures: …`,
+   `live scene assets parsed …`, then `frame … ms avg …` every 120 frames. Filament's own
+   "eglGetFrameTimestampsANDROID failed" line is benign.
+Then the original list: wheel spin direction and steer sign (the road wheels follow the steering
+wheel 1:1 — a ratio may be wanted), Incline tilt signs, x-ray ghost, orbit feel (`LiveCamera.DEG_PER_PX`).
 
 ## Overview v2 direction (2026-10-01, evening) — Chris's reference: the Denza / Fang Cheng Bao off-road page
 Two photos of that head unit are in `C:\dev\byd_factory\refs\denza_offroad_{incline,xray}.jpg`

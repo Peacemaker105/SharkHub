@@ -132,7 +132,10 @@ internal class LiveTruck(
             // a depth pre-pass, so the ghost reads as one translucent skin instead of every panel over every other
             setTransparencyMode(Material.TransparencyMode.TWO_PASSES_ONE_SIDE)
         }
-        Log.i(LiveSupport.TAG, "body: ${asset.renderableEntities.size} renderables, ${bodyMis.size} materials, wheels ${wheels.keys}, shell ${shell.size}")
+        // W level: this head unit's logcat keeps no info-level lines at all
+        Log.w(LiveSupport.TAG, "body: ${asset.renderableEntities.size} renderables, shell ${shell.size}, wheels " +
+            wheels.entries.joinToString { "${it.key}=${it.value.spin.size}+${it.value.fixed.size}" } +
+            ", materials [${bodyMis.keys.sorted().joinToString()}], lamp materials ${bodyMis.keys.count { it.startsWith("lamp_") }}, ghost ${ghostMi != null}")
     }
 
     private fun pop(asset: FilamentAsset, scene: Scene) {
@@ -166,7 +169,9 @@ internal class LiveTruck(
     // ---- what the scene drives ----
 
     fun setPaint(linear: FloatArray) {
-        bodyMis["paint"]?.setParameter("baseColorFactor", linear[0], linear[1], linear[2], 1f)
+        val mi = bodyMis["paint"]
+        mi?.setParameter("baseColorFactor", linear[0], linear[1], linear[2], 1f)
+        Log.w(LiveSupport.TAG, "paint %s → %.3f %.3f %.3f".format(if (mi == null) "MISSING (no 'paint' material in the GLB)" else "set", linear[0], linear[1], linear[2]))
     }
 
     /** Wheel spin (radians, forward positive) and the road-wheel steer angle (degrees). */
