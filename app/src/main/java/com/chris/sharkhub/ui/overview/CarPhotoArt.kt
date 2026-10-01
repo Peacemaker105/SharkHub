@@ -179,6 +179,8 @@ class CarArt(
     val paintTintable: Boolean = false,
     /** `paint.neutral`: the flat albedo the shell was rendered in; the tint is chosen ÷ neutral per channel. */
     val paintNeutral: Color = Color.White,
+    /** `paint.specGain` (0–1): how much of the clearcoat layer to add — the gloss can be dialled down from the meta. */
+    val paintSpecGain: Float = 1f,
 ) {
     fun anchor(name: String): Offset = anchors[name] ?: Offset(canvas.width / 2f, canvas.height / 2f)
 
@@ -446,6 +448,7 @@ class CarArt(
                 blurWide = optWide(layers.opt("blurWide") ?: layers.opt("blur_wide"), bgCrop),
                 paintTintable = meta.optJSONObject("paint")?.optBoolean("tintable", false) ?: false,
                 paintNeutral = meta.optJSONObject("paint")?.optString("neutral")?.let { PaintColours.parseHex(it) }?.let { Color(it) } ?: Color.White,
+                paintSpecGain = (meta.optJSONObject("paint")?.optDouble("specGain", 1.0) ?: 1.0).toFloat().coerceIn(0f, 1f),
             )
         }.getOrNull()
     }
@@ -819,7 +822,7 @@ fun CarPhotoScene(
                     val a = (1f - state.xray).coerceIn(0f, 1f)
                     drawSlot(look, art.bodySolidLayer, a, graded) { it.bodySolid }
                     drawSlot(look, art.paintBase, a, { g -> shellTint?.filter(g) ?: g.filter }) { it.paintBase }
-                    drawSlot(look, art.paintSpec, a, graded, blend = BlendMode.Plus) { it.paintSpec }
+                    drawSlot(look, art.paintSpec, a * art.paintSpecGain, graded, blend = BlendMode.Plus) { it.paintSpec }
                 }
                 else -> drawSlot(look, art.wheels[layer]?.frame(wheelAngle), if (layer == "RL" || layer == "FL") 0.75f else 1f, graded) {
                     it.wheels[layer]?.frame(wheelAngle)

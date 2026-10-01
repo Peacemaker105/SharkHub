@@ -444,8 +444,9 @@ class CarManager(private val appContext: Context) {
             accelPct = d(Call("getAccelerateDeepness", device = "speed"),
                 Call("getFuelAccelerateDeepness", device = "speed"))?.takeIf { it in 0.0..100.0 },
             brakePct = d(Call("getBrakeDeepness", device = "speed"))?.takeIf { it in 0.0..100.0 },
-            // BODYWORK_CMD_STEERING_WHEEL_ANGEL = 1, ±780° lock to lock (probe read 163° parked).
-            steeringDeg = d(Call("getSteeringWheelValue", 1, device = "bodywork"))?.takeIf { Math.abs(it) <= 780.0 },
+            // BODYWORK_CMD_STEERING_WHEEL_ANGEL = 1. The car reports TENTHS of a degree ("32°" showed on a
+            // straight highway and "14°" parked on 2026-10-01 before this divide); ±780° lock to lock once in degrees.
+            steeringDeg = d(Call("getSteeringWheelValue", 1, device = "bodywork"))?.div(10.0)?.takeIf { Math.abs(it) <= 780.0 },
             // The car's own gradient sensor (AUTO_SLOPE_MIN..MAX = ±60); units unverified, kept for the probe.
             slopeDeg = d(Call("getSlope", device = "sensor"))?.takeIf { Math.abs(it) <= 60.0 },
             tyres = Corner.entries.map { tyre(it) },

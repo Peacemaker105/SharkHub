@@ -6,7 +6,10 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import com.chris.sharkhub.ui.dash.ArcGauge
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.delay
@@ -133,9 +136,9 @@ fun OverviewScreen(nav: NavController, car: CarManager) {
     val art = rememberCarArt()
     // only a set that says its shell is a neutral render takes the chosen paint
     val paint = if (art.art?.paintTintable == true) Color(settings.paint) else null
-    // where the scene was last pinched to, written back once the fingers settle
-    var camera by remember { mutableStateOf(SceneCamera(prefs.sceneZoom, Offset(prefs.scenePanX, prefs.scenePanY))) }
-    LaunchedEffect(camera) { delay(400); prefs.sceneZoom = camera.zoom; prefs.scenePanX = camera.pan.x; prefs.scenePanY = camera.pan.y }
+    // where this page's scene was last pinched to (its own memory, apart from the stage's), written back once the fingers settle
+    var camera by remember { mutableStateOf(prefs.sceneCamera(Prefs.SCENE_OVERVIEW).let { (z, x, y) -> SceneCamera(z, Offset(x, y)) }) }
+    LaunchedEffect(camera) { delay(400); prefs.setSceneCamera(Prefs.SCENE_OVERVIEW, camera.zoom, camera.pan.x, camera.pan.y) }
     // The Vehicle page is fullscreen: the status bar goes while it's showing (a swipe brings it
     // back for a moment) and comes back when the page is left.
     val view = LocalView.current
@@ -211,7 +214,18 @@ fun OverviewContent(
     }
     val onBack: () -> Unit = { nav.popBackStack() }
     val onRage: () -> Unit = { NativeApp.launchOrToast(ctx, NativeApp.RAGE_MODE) }
-    Column(Modifier.fillMaxSize()) {
+    // A one-finger swipe to the right anywhere on the page goes back to the stage page it came from
+    // (the dashboard's last page swipes on into here). Children — the x-ray slider, two-finger pinch —
+    // take their drags first.
+    val swipeBack = Modifier.pointerInput(Unit) {
+        var travelled = 0f
+        detectHorizontalDragGestures(
+            onDragStart = { travelled = 0f },
+            onDragEnd = { if (travelled > 140.dp.toPx()) onBack() },
+            onDragCancel = { travelled = 0f },
+        ) { _, dx -> travelled += dx }
+    }
+    Column(Modifier.fillMaxSize().then(swipeBack)) {
         if (isPortrait()) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp, end = 20.dp, bottom = 16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -286,6 +300,7 @@ private fun ScenePanel(
                     MiniStat("Range", tele.totalRangeKm?.let { "${it.toInt()} km" } ?: "—")
                     MiniStat("Outside", tele.outsideTempC?.let { "%.0f°".format(it) } ?: "—")
                     MiniStat("Odo", tele.odometerKm?.let { "%,d km".format(it.toLong()) } ?: "—")
+                    MiniStat("Heading", heading?.let { "${Heading.cardinal(it)} ${it.roundToInt()}°" } ?: "—")
                 }
             }
             // top-right, under Rage Mode: which lens
@@ -304,9 +319,10 @@ private fun ScenePanel(
             }
             // right edge: the floating cards; tapping one switches the lens
             Column(Modifier.align(Alignment.CenterEnd).padding(end = 14.dp).width(178.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // one card per lens, in the lens tabs' spirit: tapping any of them switches to it
                 AttitudeCard(att, rollView, lens == Lens.INCLINE) { onLens(Lens.INCLINE) }
                 WheelsCard(tele, lens == Lens.TYRES) { onLens(Lens.TYRES) }
-                CompassCard(heading, tele, lens == Lens.ENERGY) { onLens(Lens.ENERGY) }
+                ElectricCard(tele, lens == Lens.ENERGY) { onLens(Lens.ENERGY) }
             }
             Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)) {
                 SegmentedControl(Lens.entries.map { it.label }, lens.ordinal) { onLens(Lens.entries[it]) }
@@ -429,19 +445,28 @@ private fun WheelsCard(tele: Telemetry, selected: Boolean, onClick: () -> Unit) 
     }
 }
 
+/** The electric system at a glance: battery % and flow, with what the engine or charger is doing underneath. */
 @Composable
-private fun CompassCard(heading: Float?, tele: Telemetry, selected: Boolean, onClick: () -> Unit) {
+private fun ElectricCard(tele: Telemetry, selected: Boolean, onClick: () -> Unit) {
     val cs = MaterialTheme.colorScheme
+    val charging = (tele.chargePowerKw ?: 0.0) > 0.05
+    val status = when {
+        Electric.engineCharging(tele) -> "Charging · engine ${Electric.engine(tele)}"
+        charging -> "Charging ${Electric.charge(tele)}"
+        else -> "Engine ${Electric.engine(tele)}"
+    }
     FloatCard(selected, onClick) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SectionLabel("Environment")
+            SectionLabel("Electric system")
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CompassDial(heading, Modifier.size(40.dp))
+                Box(contentAlignment = Alignment.Center) {
+                    ArcGauge(tele.socPercent?.toFloat()?.div(100f), cs.primary, Modifier.size(40.dp), stroke = 3.5f)
+                    Icon(Icons.Rounded.Bolt, null, tint = if (charging) cs.secondary else cs.primary, modifier = Modifier.size(16.dp))
+                }
                 Column {
-                    Text(heading?.let { "${Heading.cardinal(it)} ${it.roundToInt()}°" } ?: "—", style = MaterialTheme.typography.titleMedium,
-                        color = cs.onSurface, maxLines = 1)
-                    Text(tele.outsideTempC?.let { "%.0f° outside".format(it) } ?: if (heading == null) "No compass" else "Outside —",
-                        style = MaterialTheme.typography.labelSmall, color = cs.onSurfaceVariant, maxLines = 1)
+                    Text(Electric.battery(tele), style = MaterialTheme.typography.titleMedium, color = cs.onSurface, maxLines = 1)
+                    Text(status, style = MaterialTheme.typography.labelSmall, color = if (charging) cs.secondary else cs.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -464,41 +489,6 @@ private fun SteeringGlyph(deg: Float, modifier: Modifier) {
             drawCircle(cs.primary, w * 1.4f, c)
             drawCircle(cs.primary, w * 0.9f, Offset(c.x, c.y - r))     // top-dead-centre mark
         }
-    }
-}
-
-/** Rotating compass rose with a fixed lubber line; dims when there's no heading source. */
-@Composable
-private fun CompassDial(heading: Float?, modifier: Modifier) {
-    val cs = MaterialTheme.colorScheme
-    val measurer = rememberTextMeasurer()
-    val style = TextStyle(fontSize = 8.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
-    val alpha = if (heading == null) 0.35f else 1f
-    Canvas(modifier) {
-        val r = size.minDimension / 2f * 0.92f
-        val c = center
-        drawCircle(cs.onSurface.copy(alpha = 0.25f * alpha), r, c, style = Stroke(1.dp.toPx()))
-        rotate(-(heading ?: 0f), c) {
-            for (a in 0 until 360 step 30) {
-                val rad = Math.toRadians(a.toDouble() - 90.0)
-                val cardinal = a % 90 == 0
-                val inner = r - (if (cardinal) 5f else 2.5f).dp.toPx()
-                drawLine(cs.onSurface.copy(alpha = (if (cardinal) 0.8f else 0.4f) * alpha),
-                    c + Offset(cos(rad).toFloat(), sin(rad).toFloat()) * inner,
-                    c + Offset(cos(rad).toFloat(), sin(rad).toFloat()) * r, strokeWidth = 1.dp.toPx())
-                if (cardinal) {
-                    val label = listOf("N", "E", "S", "W")[a / 90]
-                    val t = measurer.measure(label, style.copy(color = (if (a == 0) cs.error else cs.onSurface).copy(alpha = alpha)))
-                    val at = c + Offset(cos(rad).toFloat(), sin(rad).toFloat()) * (r - 10.dp.toPx())
-                    drawText(t, topLeft = Offset(at.x - t.size.width / 2f, at.y - t.size.height / 2f))
-                }
-            }
-        }
-        // lubber line: where the nose points
-        drawPath(Path().apply {
-            moveTo(c.x, c.y - r - 1.dp.toPx()); lineTo(c.x - 3.dp.toPx(), c.y - r + 5.dp.toPx()); lineTo(c.x + 3.dp.toPx(), c.y - r + 5.dp.toPx()); close()
-        }, cs.primary.copy(alpha = alpha))
-        drawCircle(cs.primary.copy(alpha = alpha), 1.5.dp.toPx(), c)
     }
 }
 

@@ -98,16 +98,22 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("paint_colour", DEFAULT_PAINT)
         set(v) = sp.edit().putInt("paint_colour", v).apply()
 
-    /** Where the truck scene is pinched to: a factor on the cover fit (0.5–1.2) and a pan in screen px. */
-    var sceneZoom: Float
-        get() = sp.getFloat("scene_zoom", DEFAULT_ZOOM)
-        set(v) = sp.edit().putFloat("scene_zoom", v).apply()
-    var scenePanX: Float
-        get() = sp.getFloat("scene_pan_x", 0f)
-        set(v) = sp.edit().putFloat("scene_pan_x", v).apply()
-    var scenePanY: Float
-        get() = sp.getFloat("scene_pan_y", 0f)
-        set(v) = sp.edit().putFloat("scene_pan_y", v).apply()
+    /**
+     * Where a scene page is pinched to — [SCENE_OVERVIEW] and [SCENE_STAGE] each keep their own: a
+     * factor on the cover fit (0.5–1.2) and a pan in screen px. The single keys the first build wrote
+     * count as the Overview's.
+     */
+    fun sceneCamera(page: String): Triple<Float, Float, Float> {
+        val legacy = page == SCENE_OVERVIEW
+        return Triple(
+            sp.getFloat("scene_zoom_$page", if (legacy) sp.getFloat("scene_zoom", DEFAULT_ZOOM) else DEFAULT_ZOOM),
+            sp.getFloat("scene_pan_x_$page", if (legacy) sp.getFloat("scene_pan_x", 0f) else 0f),
+            sp.getFloat("scene_pan_y_$page", if (legacy) sp.getFloat("scene_pan_y", 0f) else 0f),
+        )
+    }
+
+    fun setSceneCamera(page: String, zoom: Float, panX: Float, panY: Float) =
+        sp.edit().putFloat("scene_zoom_$page", zoom).putFloat("scene_pan_x_$page", panX).putFloat("scene_pan_y_$page", panY).apply()
 
     /**
      * Which side of the screen the driver's climate zone sits on. Until chosen in Options it's
@@ -149,10 +155,12 @@ class Prefs(ctx: Context) {
         const val DEFAULT_STYLE = "auto"
         const val DEFAULT_HOME_LAYOUT = "bento_stage"
         const val DEFAULT_HOME_BACKDROP = "waves"
-        /** Chris's Deep Sea Blue, sampled from his own head unit. */
-        val DEFAULT_PAINT: Int = 0xFF2B4566.toInt()
+        /** Deep Sea Blue as the dealer configurator shows it (the day plate's clearcoat makes any colour read lighter). */
+        val DEFAULT_PAINT: Int = 0xFF203450.toInt()
         /** The cover fit was "a little too zoomed in"; this needs the wide plates, and clamps up to 1 without them. */
         const val DEFAULT_ZOOM = 0.85f
+        const val SCENE_OVERVIEW = "overview"
+        const val SCENE_STAGE = "stage"
 
         /**
          * Where the unit is, for the driving-side guess. The time zone beats the locale: head units

@@ -70,8 +70,8 @@ fun Prefs.save(s: SceneSettings) {
     paintColour = s.paint; sceneLighting = s.lighting; sceneMotion = s.motion
 }
 
-/** One row of the scene sheet: its title and the control that edits the settings. Add rows here. */
-class SceneSettingRow(val title: String, val control: @Composable (SceneSettings, (SceneSettings) -> Unit) -> Unit)
+/** One row of the scene sheet: its title, an optional line under it, and the control that edits the settings. Add rows here. */
+class SceneSettingRow(val title: String, val subtitle: String? = null, val control: @Composable (SceneSettings, (SceneSettings) -> Unit) -> Unit)
 
 val sceneSettingRows: List<SceneSettingRow> = listOf(
     SceneSettingRow("Car colour") { s, set -> PaintPicker(s.paint) { set(s.copy(paint = it)) } },
@@ -82,7 +82,9 @@ val sceneSettingRows: List<SceneSettingRow> = listOf(
             if (s.lighting == SceneLighting.AUTO) LocationHint()
         }
     },
-    SceneSettingRow("Scene motion") { s, set -> SegmentedControl(listOf("Off", "On"), if (s.motion) 1 else 0) { set(s.copy(motion = it == 1)) } },
+    SceneSettingRow("Scene motion", "On moves the road lines, posts, wheels and backdrop with speed · Off = still scene") { s, set ->
+        SegmentedControl(listOf("Off", "On"), if (s.motion) 1 else 0) { set(s.copy(motion = it == 1)) }
+    },
 )
 
 /**
@@ -154,6 +156,7 @@ fun BoxScope.SceneSettingsSheet(settings: SceneSettings, onSettings: (SceneSetti
         sceneSettingRows.forEach { row ->
             Column(Modifier.fillMaxWidth().padding(end = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(row.title, style = MaterialTheme.typography.titleSmall, color = cs.onSurface)
+                row.subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant) }
                 row.control(settings, onSettings)
             }
         }

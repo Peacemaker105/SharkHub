@@ -85,7 +85,7 @@ fun InclineView(
             Crossfade(view, Modifier.weight(1f).fillMaxHeight(), animationSpec = tween(450), label = "view") { v ->
                 val side = v == VehicleView.SIDE
                 VehicleTilt(v, if (side) att.pitch else att.roll, (if (side) pitch else roll).second, Modifier.fillMaxSize(),
-                    art = art?.let { rememberViewArt(it, v) }, tint = tint)
+                    art = art?.let { rememberViewArt(it, v) }, tint = tint, specGain = art?.paintSpecGain ?: 1f)
             }
         }
         Box(Modifier.align(Alignment.TopCenter).padding(top = 14.dp)) {

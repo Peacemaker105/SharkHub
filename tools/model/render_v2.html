@@ -881,7 +881,11 @@ window.renderAll = async (opts = {}) => {
   meta.metresPerUnit = MPU;
   meta.model = { name: rig.name || rig.model.split('/').pop(), up: rig.up, toMetres: rig.toMetres, unitScale: S, bbox: { min: box3.min.toArray(), max: box3.max.toArray() } };
   // hex = the preview colour only; the app tints paintBase by its own choice ÷ neutral
-  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default'), tintable: true, neutral: hex(PAINT_NEUTRAL) };
+  // specGain: how much of the clearcoat layer the app adds back (by day the reflections of a bright
+  // sky otherwise wash a dark colour out to a pale one — measured on the unit: Deep Sea Blue's door
+  // read (159, 182, 214) at full strength)
+  meta.paint = { hex: hex(paintMat.color), name: (params.get('paint') ? 'custom' : (rig.paint && rig.paint.name) || 'default'), tintable: true, neutral: hex(PAINT_NEUTRAL),
+    specGain: rig.paint && rig.paint.specGain != null ? rig.paint.specGain : 1 };
   meta.camera = { position: camera.position.toArray(), target: centre.toArray(), fov: camera.fov, aspect: W / H };
   meta.files = { body: `${TAG}_body.png`, bodySolid: `${TAG}_body_solid.png`, paintBase: `${TAG}_paint_base.png`, paintSpec: `${TAG}_paint_spec.png`, drive: `${TAG}_drive.png`, bg: null, wheels: {} };
   meta.times = {};
