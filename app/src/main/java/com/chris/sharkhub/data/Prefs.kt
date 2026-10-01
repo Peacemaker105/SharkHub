@@ -108,6 +108,16 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("paint_colour", DEFAULT_PAINT)
         set(v) = sp.edit().putInt("paint_colour", v).apply()
 
+    /** The renderer version of the truck set baked on this unit from the car's own files (0 = none yet); see bake/BakeRunner. */
+    var bakeVersion: Int
+        get() = sp.getInt("bake_version", 0)
+        set(v) = sp.edit().putInt("bake_version", v).apply()
+
+    /** The first-run offer to build the truck from the car's own model has been shown (accepted or not). */
+    var bakeOffered: Boolean
+        get() = sp.getBoolean("bake_offered", false)
+        set(v) = sp.edit().putBoolean("bake_offered", v).apply()
+
     /** The live Filament truck (ui/overview/live) instead of the pre-rendered plates, where its assets are in the build. */
     var liveScene: Boolean
         get() = sp.getBoolean("live_scene", false)   // opt-in until the live look is tuned on the unit (first run: unlit truck)

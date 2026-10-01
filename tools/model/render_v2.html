@@ -23,6 +23,12 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { HDRCubeTextureLoader } from 'three/addons/loaders/HDRCubeTextureLoader.js';
 
+// The same page runs inside Shark Hub's WebView on the head unit (the on-car bake, see
+// app/.../bake/): that WebView may predate top-level await, so the body is an async function, and
+// the files it saves go through `window.sharkhub` (the app's JavaScript bridge) instead of serve.js's
+// POST /save. The Gradle build copies this file into the APK with the imports pointed at the
+// vendored three.js in tools/model/lib — never edit the copy.
+(async () => {
 // ============================================================================================
 // v2 layer renderer: a multi-part car GLB (parts named, materials named, wheel hubs known) is
 // rendered from ONE fixed camera into transparent layers the app composes:
@@ -39,7 +45,15 @@ import { HDRCubeTextureLoader } from 'three/addons/loaders/HDRCubeTextureLoader.
 // ============================================================================================
 const params = new URLSearchParams(location.search);
 const hud = document.getElementById('hud');
-const say = (t) => { hud.textContent = t; console.log(t); };
+const bridge = window.sharkhub || null;   // Shark Hub's bake bridge (Android); absent on the PC
+const say = (t) => { hud.textContent = t; console.log(t); if (bridge && bridge.progress) bridge.progress(String(t)); };
+/** Saves a file: through the app when it hosts us, else serve.js's POST /save. Resolves to a status line. */
+async function save(name, body) {
+  if (bridge && bridge.save) return bridge.save(name, body);
+  const r = await fetch('/save?name=' + encodeURIComponent(name), { method: 'POST', body });
+  return r.text();
+}
+window.addEventListener('unhandledrejection', (e) => { say('FAILED: ' + (e.reason && e.reason.stack || e.reason)); if (bridge && bridge.failed) bridge.failed(String(e.reason && e.reason.message || e.reason)); });
 const rig = await (await fetch(params.get('rig') || 'rig.json')).json();
 const W = parseInt(params.get('w') || (rig.canvas && rig.canvas[0]) || '2400', 10);
 const H = parseInt(params.get('h') || (rig.canvas && rig.canvas[1]) || '1750', 10);
@@ -50,11 +64,14 @@ const S = (rig.toMetres || 1) / MPU;             // model units → world units
 const VIEW = Object.assign({ az: 235, el: 9, dist: 2.9, fov: 32 }, rig.view || {});
 if (params.has('fov')) VIEW.fov = parseFloat(params.get('fov'));
 const EDGE = parseFloat(params.get('edge') || rig.edge || '45');
+// shadow map size: 4096 on a desktop GPU; the head unit's bake asks for 2048 (VSM keeps two half-float targets of it)
+const SHADOW = parseInt(params.get('shadow') || rig.shadowMapSize || '4096', 10);
 
 // ---------------------------------------------------------------- renderer / scene / camera
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(1);
 renderer.setSize(W, H);
+if (params.get('fit') === '1') { renderer.domElement.style.maxWidth = '100%'; renderer.domElement.style.height = 'auto'; }   // a live preview that fits a small WebView; the backing store stays W×H
 renderer.setClearColor(0x000000, 0);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -404,7 +421,7 @@ function regionAnchors(mesh) {
 
 // ---------------------------------------------------------------- lights, sky, environment
 const sun = new THREE.DirectionalLight(0xffffff, 3);
-sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096);
+sun.castShadow = true; sun.shadow.mapSize.set(SHADOW, SHADOW);
 sun.shadow.camera.left = sun.shadow.camera.bottom = -3.2; sun.shadow.camera.right = sun.shadow.camera.top = 3.2; sun.shadow.camera.near = 1; sun.shadow.camera.far = 120;
 sun.shadow.bias = -0.0002; sun.shadow.normalBias = 0.02; sun.shadow.radius = 6; sun.shadow.blurSamples = 16;
 scene.add(sun); scene.add(sun.target);
@@ -803,11 +820,10 @@ async function capture(name, full = false, render = true) {
   const crop = document.createElement('canvas'); crop.width = cw; crop.height = ch;
   crop.getContext('2d').drawImage(work, x0, y0, cw, ch, 0, 0, cw, ch);
   const url = crop.toDataURL('image/png');
-  const r = await fetch('/save?name=' + encodeURIComponent(name + '.png'), { method: 'POST', body: url });
-  say(name + ' ' + cw + 'x' + ch + ' ' + await r.text());
+  say(name + ' ' + cw + 'x' + ch + ' ' + await save(name + '.png', url));
   return { x: x0, y: y0, w: cw, h: ch };
 }
-async function saveJson(name, obj) { await fetch('/save?name=' + encodeURIComponent(name), { method: 'POST', body: JSON.stringify(obj, null, 1) }); }
+async function saveJson(name, obj) { await save(name, JSON.stringify(obj, null, 1)); }
 // A shell layer where some parts write colour and the rest only depth can't trust the draw order
 // (three groups opaque draws by shader program, so the far door's paint was drawn before the near
 // window and the door trim had written their depth — and showed through the glass). A depth
@@ -827,8 +843,7 @@ async function captureShell(name, mode) {
 window.snap = async (name = 'snap', scale = 0.5, bg = '#0b1118') => {
   const c = document.createElement('canvas'); c.width = Math.round(W * scale); c.height = Math.round(H * scale);
   const g2 = c.getContext('2d'); g2.fillStyle = bg; g2.fillRect(0, 0, c.width, c.height); g2.drawImage(renderer.domElement, 0, 0, c.width, c.height);
-  const r = await fetch('/save?name=' + encodeURIComponent(name + '.jpg'), { method: 'POST', body: c.toDataURL('image/jpeg', 0.9) });
-  return await r.text();
+  return save(name + '.jpg', c.toDataURL('image/jpeg', 0.9));
 };
 
 // ---------------------------------------------------------------- inclinometer elevations
@@ -1126,7 +1141,13 @@ if (params.get('auto') === '1') {
   await window.renderAll();
   if (params.get('extras') !== '0') await window.renderExtras();
   await saveJson(`${TAG}_done.json`, { tag: TAG, extras: params.get('extras') !== '0', finished: new Date().toISOString() });
+  if (bridge && bridge.done) bridge.done();
 }
+})().catch((e) => {
+  const hud = document.getElementById('hud');
+  hud.textContent = 'FAILED: ' + (e && e.stack || e); console.error(e);
+  if (window.sharkhub && window.sharkhub.failed) window.sharkhub.failed(String(e && e.message || e));
+});
 </script>
 </body>
 </html>
