@@ -133,6 +133,12 @@ Shell), scene motion while driving (capture looked sharp at 81 km/h — check th
 - Next on-car: install `app-debug.apk` (98 MB, versionCode 2 — bump before a release), check the
   items above, flick indicators/headlights to confirm `getTurnLightState` / headlight codes, the
   inclinometer zero (read 15° parked), then OverDrive.
+- **Phase 1 — on-device bake (branch, in progress):** the public app can't ship BYD's model, so an
+  agent is building, on a worktree branch off `45a3a45`, a Kotlin Kanzi decoder that reads the
+  owner's own `BydMyCar.apk` (+ DrivingMode's Rage files when present) on the car, a WebView-hosted
+  run of our `render_v2.html` as a one-off setup phase, a Kotlin port of `pack_v2.py` into
+  `filesDir/car_bake` (preferred by `CarArt.load` over `car_private` and `v1`), and a Setup screen.
+  Same renderer → same look as today's plates. Merge only after it has baked on Chris's car.
 - **Round 5 (evening, from the second drive) — BUILT ~21:05, NOT ON THE CAR (it was off):**
   `app-debug.apk` carries round 5 (flashing debounced — brake/indicator/blur/plate-swap hysteresis;
   dash streaks capped; two-finger pan/zoom classified; cog rows "Lamps on the truck" + "Scan line";
