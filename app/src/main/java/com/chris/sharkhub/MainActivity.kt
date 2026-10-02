@@ -28,6 +28,7 @@ import com.chris.sharkhub.ui.ProbeScreen
 import com.chris.sharkhub.ui.SentryScreen
 import com.chris.sharkhub.ui.UpdatesScreen
 import com.chris.sharkhub.ui.SideloadScreen
+import com.chris.sharkhub.ui.bake.BakeScreen
 import com.chris.sharkhub.ui.dash.DashboardScreen
 import com.chris.sharkhub.ui.gauges.GaugesScreen
 import com.chris.sharkhub.ui.overview.OverviewScreen
@@ -91,6 +92,8 @@ object Routes {
     const val OPTIONS = "options"
     const val UPDATES = "updates"
     const val CONTROLS = "controls"
+    /** Build the dashboard truck from this car's own head-unit model (bake/BakeRunner). */
+    const val BAKE = "bake"
 }
 
 @Composable
@@ -113,6 +116,7 @@ fun AppNav(car: CarManager, themes: ThemeController) {
             composable(Routes.OPTIONS) { OptionsScreen(nav, themes) }
             composable(Routes.UPDATES) { UpdatesScreen(nav) }
             composable(Routes.CONTROLS) { ControlsScreen(nav, car) }
+            composable(Routes.BAKE) { BakeScreen(nav) }
         }
     }
 }

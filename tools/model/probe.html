@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Shark Hub WebGL probe</title>
+<style>html, body { margin: 0; background: #0b1118; color: #9fd; font: 12px/1.4 monospace; } pre { margin: 8px; white-space: pre-wrap; }</style>
+</head>
+<body>
+<pre id="out">probing…</pre>
+<script>
+// Plain script on purpose: it must run on any WebView, including one too old for modules, and
+// tell the app (through window.sharkhub) whether the renderer page stands a chance here.
+(function () {
+  var out = { ua: navigator.userAgent, dpr: window.devicePixelRatio, screen: [screen.width, screen.height], viewport: [window.innerWidth, window.innerHeight] };
+  try {
+    var c = document.createElement('canvas');
+    var gl2 = c.getContext('webgl2');
+    out.webgl2 = !!gl2;
+    var gl = gl2 || c.getContext('webgl') || c.getContext('experimental-webgl');
+    out.webgl = !!gl;
+    if (gl) {
+      var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      out.renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+      out.vendor = dbg ? gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+      out.version = gl.getParameter(gl.VERSION);
+      out.maxTexture = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+      out.maxRenderbuffer = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+      out.maxViewport = Array.prototype.slice.call(gl.getParameter(gl.MAX_VIEWPORT_DIMS));
+      var ext = gl.getSupportedExtensions() || [];
+      out.extensions = ext.length;
+      out.astc = ext.indexOf('WEBGL_compressed_texture_astc') >= 0;
+      out.floatTextures = !!gl2 || ext.indexOf('OES_texture_float') >= 0;
+      out.halfFloatTextures = !!gl2 || ext.indexOf('OES_texture_half_float') >= 0;
+      out.colorBufferFloat = ext.indexOf('EXT_color_buffer_float') >= 0 || ext.indexOf('EXT_color_buffer_half_float') >= 0;
+      out.depthTexture = !!gl2 || ext.indexOf('WEBGL_depth_texture') >= 0;
+      out.anisotropy = ext.indexOf('EXT_texture_filter_anisotropic') >= 0;
+    }
+    out.modules = 'noModule' in document.createElement('script');
+    out.es2020 = (function () { try { new Function('return (1 ?? 2) + (({a:1})?.a)'); return true; } catch (e) { return false; } })();
+    out.topLevelAwaitLikely = /Chrom(e|ium)\/(\d+)/.exec(navigator.userAgent) ? parseInt(/Chrom(e|ium)\/(\d+)/.exec(navigator.userAgent)[2], 10) >= 89 : false;
+  } catch (e) { out.error = String(e); }
+  document.getElementById('out').textContent = JSON.stringify(out, null, 1);
+  if (window.sharkhub && window.sharkhub.probe) window.sharkhub.probe(JSON.stringify(out));
+})();
+</script>
+</body>
+</html>

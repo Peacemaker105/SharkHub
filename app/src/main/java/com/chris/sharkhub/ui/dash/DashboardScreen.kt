@@ -181,6 +181,45 @@ fun DashboardScreen(nav: NavController, car: CarManager) {
         camera = camera, onCamera = { camera = it },
         live = liveAvailable && settings.live, liveCamera = liveCamera, onLiveCamera = { liveCamera = it },
     )
+    BakeOffer(nav, prefs)
+}
+
+/**
+ * Once, on a unit that carries BYD's My Car app and has no baked truck yet: offer to build the
+ * dashboard truck from the car's own model (bake/BakeRunner). Again, once per renderer version, when a
+ * newer app would draw the baked set differently.
+ */
+@Composable
+private fun BakeOffer(nav: NavController, prefs: Prefs) {
+    val ctx = LocalContext.current
+    val offer = remember {
+        when {
+            !com.chris.sharkhub.bake.CarSources.isMyCarInstalled(ctx) -> null
+            !com.chris.sharkhub.bake.BakeFiles.hasBake(ctx) -> if (prefs.bakeOffered) null else "first"
+            com.chris.sharkhub.bake.BakeRunner.needsRebuild(ctx) && prefs.bakeRebuildOffered < com.chris.sharkhub.bake.BakeRunner.RENDERER_VERSION -> "rebuild"
+            else -> null
+        }
+    }
+    var open by remember { mutableStateOf(offer != null) }
+    if (!open || offer == null) return
+    fun seen() {
+        open = false
+        if (offer == "first") prefs.bakeOffered = true else prefs.bakeRebuildOffered = com.chris.sharkhub.bake.BakeRunner.RENDERER_VERSION
+    }
+    AlertDialog(
+        onDismissRequest = { seen() },
+        title = { Text(if (offer == "first") "Build the truck from this car?" else "Rebuild the truck?") },
+        text = {
+            Text(
+                if (offer == "first") "This head unit carries BYD's own 3D model of the Shark 6. Shark Hub can render its dashboard truck from it, right here, " +
+                    "in a few minutes — nothing leaves the car, and the bundled truck stays until it's done. You can also start it later from Options."
+                else "This version of Shark Hub draws the truck's scene differently. The set built on this unit was made by the previous renderer; " +
+                    "rebuilding takes a few minutes and keeps the old set until the new one is complete.",
+            )
+        },
+        confirmButton = { TextButton(onClick = { seen(); nav.navigate(com.chris.sharkhub.Routes.BAKE) }) { Text(if (offer == "first") "Build it" else "Rebuild") } },
+        dismissButton = { TextButton(onClick = { seen() }) { Text("Not now") } },
+    )
 }
 
 /** Stateless body — what the screenshot tests render. */

@@ -142,17 +142,32 @@ class ViewSpec(val file: String, val groundY: Float?, val pivotX: Float?, val pa
 /** The lamp overlays a set can list under `lights` — composited additively over the body when lit. */
 val LAMP_KEYS = listOf("head", "tail", "brake", "turnL", "turnR", "fog", "reverse", "drl")
 
+/** Where a set's files come from: a folder in the APK's assets, or a folder on disk (the set baked on the car from its own model). */
+sealed class ArtSource(val label: String) {
+    abstract fun open(ctx: Context, name: String): java.io.InputStream?
+
+    class Assets(val dir: String) : ArtSource(dir) {
+        override fun open(ctx: Context, name: String) = runCatching { ctx.assets.open("$dir/$name") }.getOrNull()
+    }
+
+    class Files(val dir: java.io.File) : ArtSource(dir.path) {
+        override fun open(ctx: Context, name: String) = java.io.File(dir, name).takeIf { it.isFile }?.inputStream()
+    }
+}
+
 /**
  * The pre-rendered truck (tools/model/render.html → app assets): a white ghost body and a white
  * driveline layer that the scene tints with the theme, the textured wheels as spin strips, and the
  * metadata that says where everything sits so callouts can anchor to real hubs. Two sets exist:
  * the public `car/v1_*` (Meshy truck) and, when it's in the build, the private `car_private/v2_*`
  * rendered from BYD's own model, which adds time-of-day plates, lamp overlays and flat views —
- * never committed.
+ * never committed. A third, preferred over both, is the `v2` set the car bakes for itself from its
+ * own head-unit files (`filesDir/car_bake`, see bake/BakeRunner): the same renderer, the owner's own
+ * model, nothing of BYD's shipped.
  */
 class CarArt(
-    /** The asset folder the files live in. */
-    val dir: String,
+    /** Where the files live: an asset folder or the baked set on disk. */
+    val source: ArtSource,
     val canvas: Size,
     val phases: Int,
     /** model units per render-canvas pixel — 1 unit ≈ 2.88 m on the Shark. */
@@ -187,6 +202,14 @@ class CarArt(
     /** `paint.specGain` (0–1): how much of the clearcoat layer to add — the gloss can be dialled down from the meta. */
     val paintSpecGain: Float = 1f,
 ) {
+    /** The folder's name, for messages. */
+    val dir: String get() = source.label
+
+    /** True for the set baked on this car from its own model. */
+    val baked: Boolean get() = source is ArtSource.Files
+
+    private fun decode(ctx: Context, file: String): ImageBitmap? = decodeFrom(ctx, source, file)
+
     fun anchor(name: String): Offset = anchors[name] ?: Offset(canvas.width / 2f, canvas.height / 2f)
 
     /** Where a point on the ground plane lands on the render canvas. */
@@ -235,10 +258,10 @@ class CarArt(
     fun timeLayers(ctx: Context, time: TimeOfDay): TimeLayers {
         peekTimeLayers(time)?.let { return it }
         val v = variant(time)
-        fun layer(f: LayerFile?): Layer? = f?.let { lf -> decodeAsset(ctx, "$dir/${lf.file}")?.let { Layer(it, lf.crop) } }
+        fun layer(f: LayerFile?): Layer? = f?.let { lf -> decode(ctx, lf.file)?.let { Layer(it, lf.crop) } }
         val ownWheels = v.wheels.mapNotNull { (corner, files) ->
             val base = wheels[corner] ?: return@mapNotNull null
-            val bitmaps = files.map { decodeAsset(ctx, "$dir/${it.file}") }
+            val bitmaps = files.map { decode(ctx, it.file) }
             if (bitmaps.isEmpty() || bitmaps.any { it == null }) null
             else corner to WheelArt(base.hub, files.map { it.crop }, bitmaps.filterNotNull())
         }.toMap()
@@ -261,11 +284,11 @@ class CarArt(
     fun loadView(ctx: Context, view: VehicleView): TiltArt? {
         val spec = views[view] ?: return null
         synchronized(viewCache) { if (viewCache.containsKey(view)) return viewCache[view] }
-        val art = decodeAsset(ctx, "$dir/${spec.file}")?.let { img ->
+        val art = decode(ctx, spec.file)?.let { img ->
             // a value of one or less is a fraction of the image; anything bigger is pixels
             fun px(v: Float?, extent: Int, default: Float) = when { v == null -> default; v <= 1f -> v * extent; else -> v }
             TiltArt(img, px(spec.groundY, img.height, img.height.toFloat()), px(spec.pivotX, img.width, img.width / 2f),
-                paintBase = spec.paintBase?.let { decodeAsset(ctx, "$dir/$it") }, paintSpec = spec.paintSpec?.let { decodeAsset(ctx, "$dir/$it") })
+                paintBase = spec.paintBase?.let { decode(ctx, it) }, paintSpec = spec.paintSpec?.let { decode(ctx, it) })
         }
         synchronized(viewCache) { viewCache[view] = art }
         return art
@@ -280,21 +303,32 @@ class CarArt(
     companion object {
         const val METRES_PER_UNIT = 2.88f
 
-        /** The private BYD-model set when it's in the build, else the public one; null without either (the wireframe scene is the fallback). */
-        fun load(ctx: Context): CarArt? = loadSet(ctx, "car_private", "v2") ?: loadSet(ctx, "car", "v1")
+        /**
+         * The set baked on this car from its own model, else the private BYD-model set when it's in
+         * the build, else the public one; null without any (the wireframe scene is the fallback). A
+         * set that fails to load is skipped silently in favour of the next.
+         */
+        fun load(ctx: Context): CarArt? =
+            runCatching { com.chris.sharkhub.bake.BakeFiles.packDir(ctx) }.getOrNull()?.let { loadSet(ctx, ArtSource.Files(it), "v2") }
+                ?: loadSet(ctx, ArtSource.Assets("car_private"), "v2")
+                ?: loadSet(ctx, ArtSource.Assets("car"), "v1")
 
-        private fun decodeAsset(ctx: Context, path: String): ImageBitmap? =
-            runCatching { ctx.assets.open(path).use { BitmapFactory.decodeStream(it) }?.asImageBitmap() }.getOrNull()
+        private fun decodeFrom(ctx: Context, source: ArtSource, file: String): ImageBitmap? =
+            runCatching { source.open(ctx, file)?.use { BitmapFactory.decodeStream(it) }?.asImageBitmap() }.getOrNull()
+
+        /** An asset folder's set (the screenshot tests pin the public one this way). */
+        fun loadSet(ctx: Context, dir: String, tag: String): CarArt? = loadSet(ctx, ArtSource.Assets(dir), tag)
 
         /**
-         * One set from `<dir>/<tag>_meta.json`. Every file name comes from the meta when it gives
+         * One set from `<source>/<tag>_meta.json`. Every file name comes from the meta when it gives
          * one (`"file"` on a layer, a frame, a time slot, a lamp or a view); older metas imply
          * `<tag>_<layer>.png`. Null — and so the next set — when the meta or a required layer is
          * missing or won't decode.
          */
-        fun loadSet(ctx: Context, dir: String, tag: String): CarArt? = runCatching {
-            val am = ctx.assets
-            val meta = JSONObject(am.open("$dir/${tag}_meta.json").bufferedReader().use { it.readText() })
+        fun loadSet(ctx: Context, source: ArtSource, tag: String): CarArt? = runCatching {
+            val dir = source.label
+            val meta = JSONObject(source.open(ctx, "${tag}_meta.json")?.bufferedReader()?.use { it.readText() } ?: error("$dir/${tag}_meta.json is missing"))
+            fun decodeAsset(ctx: Context, path: String): ImageBitmap? = decodeFrom(ctx, source, path.removePrefix("$dir/"))
             fun need(file: String): ImageBitmap = decodeAsset(ctx, "$dir/$file") ?: error("$dir/$file is missing or won't decode")
             fun crop(o: JSONObject) = Crop(o.getDouble("x").toFloat(), o.getDouble("y").toFloat(), o.getDouble("w").toFloat(), o.getDouble("h").toFloat())
             fun pt(a: JSONArray) = Offset(a.getDouble(0).toFloat(), a.getDouble(1).toFloat())
@@ -434,7 +468,7 @@ class CarArt(
                 ?: bgLayer?.takeIf { sharedPlateShown }?.let { RoadBlur.fake(it, horizon - it.crop.y, along) }
 
             CarArt(
-                dir, canvas, meta.optInt("phases", 12), meta.getDouble("unitsPerPx").toFloat(),
+                source, canvas, meta.optInt("phases", 12), meta.getDouble("unitsPerPx").toFloat(),
                 need(fileOf(bodyJ, "${tag}_body.png")!!), bodyCrop, need(fileOf(driveJ, "${tag}_drive.png")!!), driveCrop,
                 wheels, anchors,
                 bodySolid = solidJ?.let { decodeAsset(ctx, "$dir/${fileOf(it, "${tag}_body_solid.png")}") }, bodySolidCrop = solidCrop,
@@ -521,6 +555,16 @@ object CarArtStore {
 
     fun start(ctx: Context) {
         if (!started.compareAndSet(false, true)) return
+        load(ctx)
+    }
+
+    /** Decodes the sets again — after a bake has swapped a new set in (or removed it) — and hands every screen the result. */
+    fun reload(ctx: Context) {
+        started.set(true)
+        load(ctx)
+    }
+
+    private fun load(ctx: Context) {
         val app = ctx.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             val loaded = CarArt.load(app)

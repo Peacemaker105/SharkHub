@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Dashboard
@@ -145,6 +146,17 @@ fun OptionsScreen(nav: NavController, themes: ThemeController) {
             } },
         ) { m ->
             Column(m, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // the dashboard truck rendered on this unit from BYD's own model in its My Car app (bake/BakeRunner)
+                val baked = remember { com.chris.sharkhub.bake.BakeFiles.hasBake(ctx) }
+                val rebuild = remember { com.chris.sharkhub.bake.BakeRunner.needsRebuild(ctx) }
+                OptionRow("Build the truck from this car",
+                    when {
+                        rebuild -> "Built by an older renderer — rebuild for the current look"
+                        baked -> "Built from this unit's own model · rebuild or remove"
+                        else -> "Render the dashboard truck from this unit's own 3D model — nothing leaves the car"
+                    }, Icons.Rounded.Build) {
+                    nav.navigate(Routes.BAKE)
+                }
                 OptionRow("Sideload apps", "Wi-Fi upload, URL or local APK — no PC", Icons.Rounded.InstallMobile) {
                     nav.navigate(Routes.SIDELOAD)
                 }

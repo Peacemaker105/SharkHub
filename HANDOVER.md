@@ -133,12 +133,35 @@ Shell), scene motion while driving (capture looked sharp at 81 km/h — check th
 - Next on-car: install `app-debug.apk` (98 MB, versionCode 2 — bump before a release), check the
   items above, flick indicators/headlights to confirm `getTurnLightState` / headlight codes, the
   inclinometer zero (read 15° parked), then OverDrive.
-- **Phase 1 — on-device bake (branch, in progress):** the public app can't ship BYD's model, so an
-  agent is building, on a worktree branch off `45a3a45`, a Kotlin Kanzi decoder that reads the
-  owner's own `BydMyCar.apk` (+ DrivingMode's Rage files when present) on the car, a WebView-hosted
-  run of our `render_v2.html` as a one-off setup phase, a Kotlin port of `pack_v2.py` into
-  `filesDir/car_bake` (preferred by `CarArt.load` over `car_private` and `v1`), and a Setup screen.
-  Same renderer → same look as today's plates. Merge only after it has baked on Chris's car.
+- **Phase 1 — on-device bake (branch `worktree-agent-ac4d1140a2176fa36`, BUILT 2026-10-02, NOT ON THE CAR):**
+  the public app can't ship BYD's model, so the truck is now built *on the car* from the owner's own
+  files. Three staged commits: (A) `car/kanzi/` — a Kotlin port of `kzb2glb.py` + `kzb_place.py` +
+  `astc4x4.py` + `rage_frame.py`, reading `BydMyCar.apk`'s `assets/PA_RTL/byd_car.kzb` (inflated once to
+  the cache, then random access) and DrivingMode's `vehicle.kzb` / `resource.kzb`; `KanziDecoderTest`
+  (skips without `C:\dev\byd_factory`) says the GLBs match the Python ones part for part (151 + 9),
+  triangle counts, materials, lamp states, boxes within 1 mm — except the four `*_windowK` glass-line
+  outlines, which now carry Kanzi's 1 cm outboard LayoutTransformation the hand-made reference
+  ignored — textures pixel-identical, HDR faces byte-identical, wheel params equal; 6 s on the PC.
+  (B) `bake/` — `BakeRunner` probes WebGL in the screen's WebView (`probe.html`), decodes, serves
+  `filesDir/bake/src` + the APK's `bake/` assets at `https://bake.sharkhub/` to `render_v2.html?auto=1`
+  (`w=1920 h=1400 shadow=2048`, times day/dawn/dusk/night, 12 phases, views + extras; the page's
+  `save()` goes through the `window.sharkhub` bridge), then `PackV2` (pack_v2.py port; `PackV2Test`
+  shows it pixel-identical to the Python pack, 0 meta differences, 30 s on the JVM) into
+  `filesDir/car_bake`, swapped in whole; `CarArt.load` order is bake → `car_private` → `v1`;
+  `CarArtStore.reload` refreshes the screens. (C) `ui/bake/BakeScreen` (Options row "Build the truck
+  from this car"; a one-time offer on the dashboard when `com.byd.mycar` is present; Rebuild / Remove;
+  `BakeRunner.RENDERER_VERSION` stamps the set and offers a rebuild when a new app changes it).
+  **First on the car:** Options → Build the truck from this car → Build now, keep the screen open;
+  `adb logcat -s SharkHubBake:W` shows the WebGL probe line (`gpu: … webgl2 … astc …`), the decode
+  (`decoded 151 meshes…`, `decoded 9 meshes…`, the fit `scale 0.85720`), then `Rendered N of ~142
+  layers`, the pack lines, `bake done in … s`. Then open the Vehicle page: the truck should look like
+  today's `car_private` plates (same renderer) — check the x-ray driveline, the lamps, dusk/night
+  plates, the inclinometer views. Risks: the unit's WebView version (import maps and top-level await
+  were removed from the page's needs; ES modules + WebGL are required), GPU memory at 1920×1400 with
+  MSAA + a 2048² VSM shadow map (drop `BakeOptions.width/height/shadowMap` if the page dies), bake
+  time (estimate 5–10 min; the render phase has a 40-min timeout), and `toDataURL` speed on the unit.
+  Merge only after it has baked on Chris's car; `tools/model/render_v2.html` keeps working on the PC
+  unchanged (the CDN import map stays; the build strips it for the APK copy).
 - **Round 5 (evening, from the second drive) — BUILT ~21:05, NOT ON THE CAR (it was off):**
   `app-debug.apk` carries round 5 (flashing debounced — brake/indicator/blur/plate-swap hysteresis;
   dash streaks capped; two-finger pan/zoom classified; cog rows "Lamps on the truck" + "Scan line";

@@ -101,6 +101,53 @@ tasks.withType<Test>().configureEach {
     systemProperty("sharkhub.snapshotPrivate", (findProperty("sharkhub.snapshotPrivate") as String?) ?: "false")
 }
 
+/**
+ * The on-car bake renders the truck with tools/model/render_v2.html inside a WebView, so the page
+ * and the three.js it imports are packaged as assets — generated at build time from the one source in
+ * tools/model (the PC pipeline keeps using the CDN import map; the copy gets local imports instead).
+ */
+abstract class BakeAssetsTask : DefaultTask() {
+    @get:InputFile abstract val page: RegularFileProperty
+    @get:InputFile abstract val probe: RegularFileProperty
+    @get:InputDirectory abstract val lib: DirectoryProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val out = outputDir.get().asFile.resolve("bake")
+        out.deleteRecursively(); out.mkdirs()
+        var html = page.get().asFile.readText()
+        html = html.replace(Regex("<script type=\"importmap\">.*?</script>\\s*", RegexOption.DOT_MATCHES_ALL), "")
+        html = html.replace("from 'three/addons/", "from './lib/three/addons/").replace("from 'three'", "from './lib/three/three.module.js'")
+        out.resolve("render_v2.html").writeText(html)
+        probe.get().asFile.copyTo(out.resolve("probe.html"), overwrite = true)
+        val libDir = lib.get().asFile
+        libDir.walkTopDown().filter { it.isFile }.forEach { f ->
+            val rel = f.relativeTo(libDir).path.replace('\\', '/')
+            val dest = out.resolve("lib/$rel")
+            dest.parentFile.mkdirs()
+            if (f.extension == "js" && rel.startsWith("three/addons/")) {
+                // an addon imports the core by its bare name: point it at the vendored module instead
+                val up = "../".repeat(rel.count { it == '/' } - 1)
+                dest.writeText(f.readText().replace("from 'three'", "from '${up}three.module.js'"))
+            } else f.copyTo(dest, overwrite = true)
+        }
+    }
+}
+
+val bakeAssets = tasks.register<BakeAssetsTask>("generateBakeAssets") {
+    page.set(rootProject.file("tools/model/render_v2.html"))
+    probe.set(rootProject.file("tools/model/probe.html"))
+    lib.set(rootProject.file("tools/model/lib"))
+    outputDir.set(layout.buildDirectory.dir("generated/bakeAssets"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(bakeAssets, BakeAssetsTask::outputDir)
+    }
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.02"))
     implementation("androidx.compose.ui:ui")

@@ -13,6 +13,11 @@ contain the libraries below. All of them are under the Apache License 2.0, whose
 | [Okio](https://github.com/square/okio) | app, installer | Square, Inc. | Apache 2.0 |
 | [dadb](https://github.com/mobile-dev-inc/dadb) | installer | mobile.dev | Apache 2.0 |
 
+The app also contains [three.js](https://threejs.org) r160 (`tools/model/lib/three/`, copied into the
+APK's `bake/lib/` at build time), © 2010–2024 three.js authors, under the MIT licence — its text is
+in `tools/model/lib/three/LICENSE`. It renders the dashboard truck inside the app's WebView from the
+model in the owner's own head unit (the on-car bake, `app/.../bake/`).
+
 Used only to build and test, and not shipped:
 [Paparazzi](https://github.com/cashapp/paparazzi) (Apache 2.0) renders the screen pictures, and
 Pillow draws the installer icons.
