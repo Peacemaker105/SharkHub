@@ -168,6 +168,11 @@ Shell), scene motion while driving (capture looked sharp at 81 km/h — check th
   time (estimate 5–10 min; the render phase has a 40-min timeout), and `toDataURL` speed on the unit.
   Merge only after it has baked on Chris's car; `tools/model/render_v2.html` keeps working on the PC
   unchanged (the CDN import map stays; the build strips it for the APK copy).
+- **Gotcha:** `pack_v2.py` replaces the whole `assets/car_private/` folder on every pack, which deleted
+  the live set (`car_private/live/`) the Filament scene needs — it survives in the live-scene worktree and
+  `tools/live/prep_live_assets.py` regenerates it; move it out of `car_private/` before un-parking live 3D.
+  Chris's private 0.3.1 build (`C:\dev\SharkHub-private-builds\SharkHub-0.3.1-private.apk`, plates in,
+  live set absent, versionCode 4) was handed to him for the Windows installer test.
 - **Round 5 (evening, from the second drive) — BUILT ~21:05, NOT ON THE CAR (it was off):**
   `app-debug.apk` carries round 5 (flashing debounced — brake/indicator/blur/plate-swap hysteresis;
   dash streaks capped; two-finger pan/zoom classified; cog rows "Lamps on the truck" + "Scan line";
