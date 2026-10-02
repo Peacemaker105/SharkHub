@@ -17,6 +17,25 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-02 — Claude Code — Release v0.3.1: the on-car truck build ships as an experiment; Chris away ~3 weeks
+
+- Chris, leaving on holiday: "write notes on the release about how to install the model and that it
+  hasn't been tested and could take some time". The phase-1 bake branch was reviewed (diff read:
+  `bake/`, `car/kanzi/`, `imaging/`, Gradle asset task, no manifest changes, WebView locked to our
+  bundled page + the decoded files, MIT three.js vendored with its notice) and merged (`79c2f34`),
+  `versionCode` 4 / `versionName` 0.3.1, public release built with `-Psharkhub.public=true` and checked
+  (no `car_private` entries, `bake/` assets present, car-key signature), released as **v0.3.1** with
+  notes that spell out Options → "Build the truck from this car", the 5–10 min, the fallback, and
+  that it has never run on a head unit; `latest.json` → 0.3.1. The installers are the 0.3.0 ones
+  (unchanged) re-attached.
+- **Files:** `app/build.gradle.kts`, `latest.json`, `CHANGELOG.md`, `HANDOVER.md`.
+- **Verified:** build + APK checks only. **Nothing of 0.3.1 has run on a car**; Chris's car still has
+  the round-5 debug build (no bake). The bake's first real run will be by other owners or by Chris
+  when he's back (~23 Oct 2026).
+- **Open / next (when Chris is back):** install 0.3.1 on his car and run the bake with
+  `adb logcat -s SharkHubBake:W` open; the backdrop choice (generated panorama vs photo); the live
+  3D tuning; SETs / gauge scaling / inclinometer zero / OverDrive still untested on-car.
+
 ## 2026-10-02 — Claude Code — Release v0.3.0 (public build, private packs excluded)
 
 - Chris: "push this version to github anyway … as a release". `main` pushed (15 commits, checked for

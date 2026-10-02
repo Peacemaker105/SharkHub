@@ -1,5 +1,11 @@
 # HANDOVER — Shark Hub
 
+> **2026-10-02 — Chris is away for ~3 weeks (back ~23 Oct).** Public state: **v0.3.1 released** (0.3.0 UI
+> rounds + the experimental on-car truck bake, opt-in, never run on a head unit). His car runs the round-5
+> debug build of the same code without the bake. First thing on his return: install 0.3.1 on the car, run
+> Options → "Build the truck from this car" with `adb logcat -s SharkHubBake:W` open, and compare the
+> baked truck with the private pack. Then: backdrop choice, live-3D tuning (parked), on-car SET tests.
+
 Current state + what to do next. Read `CLAUDE.md` for the durable project map, and `CHANGELOG.md`
 for what each session changed (add your own entry there before you finish).
 

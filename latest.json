@@ -1,6 +1,6 @@
 {
-  "versionCode": 3,
-  "versionName": "0.3.0",
-  "apkUrl": "https://github.com/Peacemaker105/SharkHub/releases/download/v0.3.0/SharkHub-0.3.0.apk",
-  "notes": "0.3.0: fullscreen Vehicle page with Tyres / Incline / Electric lenses and a scene-settings cog (car colour, time of day, motion, lamps); moving scene with the car's lamps; two-zone climate card; reclined seats with animated airflow; steering and lamp readings fixed."
+  "versionCode": 4,
+  "versionName": "0.3.1",
+  "apkUrl": "https://github.com/Peacemaker105/SharkHub/releases/download/v0.3.1/SharkHub-0.3.1.apk",
+  "notes": "0.3.1: experimental 'Build the truck from this car' (Options) renders the real Shark 6 from your own head unit's model - untested on a car yet, takes 5-10 min; plus everything in 0.3.0."
 }

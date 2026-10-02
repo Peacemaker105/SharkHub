@@ -1,4 +1,4 @@
-import java.util.Properties
+﻿import java.util.Properties
 
 plugins {
     id("com.android.application")
@@ -8,7 +8,7 @@ plugins {
 }
 
 // One key for every APK that goes on the car. The first install fixes the app's signing identity and
-// every later update (adb, Sideload, OTA) must match it — so debug builds use it too. The key and its
+// every later update (adb, Sideload, OTA) must match it â€” so debug builds use it too. The key and its
 // passwords live only on Chris's PC: keystore.properties (gitignored) points at the .jks. Without that
 // file builds fall back to the debug key: fine for previews, but they can't update the car's install.
 val carKey = Properties().apply {
@@ -23,15 +23,15 @@ android {
         applicationId = "com.chris.sharkhub"
         minSdk = 29          // DiLink 3 (Android 10) still works; the Shark 6 is API 30
         targetSdk = 32       // keep <=32 so the head-unit runtime treats us as a "known" target
-        // NB: we tried targetSdk 25 to reach the camera lib (untrusted_app_25 domain) — didn't help,
+        // NB: we tried targetSdk 25 to reach the camera lib (untrusted_app_25 domain) â€” didn't help,
         // this firmware blocks /vendor/lib64 for apps AND shell (linker namespace). See CAMERAS_SENTRY.md.
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
         // The head unit is arm64 only; skipping the other ABIs keeps the native build (and APK) small.
         ndk { abiFilters += "arm64-v8a" }
     }
 
-    // Native camera code (app/src/main/cpp) — opt-in: `-Psharkhub.nativeCam=true` or the same line
+    // Native camera code (app/src/main/cpp) â€” opt-in: `-Psharkhub.nativeCam=true` or the same line
     // in gradle.properties. Off by default because the first native build makes AGP download its
     // default NDK + CMake into the SDK (~1.5 GB), which nobody wants to start by accident on a hotspot.
     // Without it the APK simply has no libsharkcam / sidecar and NativeCamProbe reports "unavailable".
@@ -80,7 +80,7 @@ android {
         jniLibs.useLegacyPackaging = true
     }
     lint {
-        // Sideloaded, never on Play — targetSdk is deliberately old (see defaultConfig).
+        // Sideloaded, never on Play â€” targetSdk is deliberately old (see defaultConfig).
         disable += "ExpiredTargetSdkVersion"
     }
     androidResources {
@@ -95,7 +95,7 @@ android {
 }
 
 // The screenshot tests render the public car art (assets/car) by default, so the committed PNGs never
-// carry the private BYD-model set. `-Psharkhub.snapshotPrivate=true` renders car_private/ instead —
+// carry the private BYD-model set. `-Psharkhub.snapshotPrivate=true` renders car_private/ instead â€”
 // for judging it locally; those PNGs must not be committed (copy them to app/src/test/snapshots/private/).
 tasks.withType<Test>().configureEach {
     systemProperty("sharkhub.snapshotPrivate", (findProperty("sharkhub.snapshotPrivate") as String?) ?: "false")
@@ -103,7 +103,7 @@ tasks.withType<Test>().configureEach {
 
 /**
  * The on-car bake renders the truck with tools/model/render_v2.html inside a WebView, so the page
- * and the three.js it imports are packaged as assets — generated at build time from the one source in
+ * and the three.js it imports are packaged as assets â€” generated at build time from the one source in
  * tools/model (the PC pipeline keeps using the CDN import map; the copy gets local imports instead).
  */
 abstract class BakeAssetsTask : DefaultTask() {
