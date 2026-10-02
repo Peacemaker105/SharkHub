@@ -17,6 +17,23 @@ initialised) shows *what* changed; this says *why*, and how far it's been tested
 
 ---
 
+## 2026-10-02 — Claude Code — Release v0.3.0 (public build, private packs excluded)
+
+- Chris: "push this version to github anyway … as a release". `main` pushed (15 commits, checked for
+  private paths and VIN-like strings first), then **v0.3.0**: `versionCode` 3 / `versionName` 0.3.0.
+- **Public-build switch:** `-Psharkhub.public=true` adds `<dir>car_private` to `ignoreAssetsPattern`
+  so the private BYD-model packs (plates and the live set) never enter a build meant for other
+  owners — the release carries the public Meshy truck. The live 3D code ships inert (off by default,
+  no assets). Verified by listing the APK's `assets/` and the signer certificate before upload.
+- **Files:** `app/build.gradle.kts`, `latest.json`, `CHANGELOG.md`; release assets `SharkHub-0.3.0.apk`,
+  `SharkHubInstaller-Android.apk`, `SharkHubInstaller-Windows.exe` (exe rebuilt with
+  `tools/installer/build.ps1`).
+- **Verified:** release APKs built with the car key; the app APK checked to contain no `car_private`
+  entries; `latest.json` pointed at the asset only after the release existed. The 0.3.0 build itself
+  has not been installed on the car (the car runs the round-5 debug build of the same code).
+- **Open / next:** phase-1 bake branch (on-device truck) — merge after it bakes on the car; backdrop
+  choice; the live-scene tuning.
+
 ## 2026-10-01 — Claude Code — Evening: live 3D parked, round 5 from the second drive, greener scenery
 
 - **Live 3D (Filament) parked** after its first on-car run (see the next entry and HANDOVER):

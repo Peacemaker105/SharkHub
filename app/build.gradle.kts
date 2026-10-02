@@ -25,8 +25,8 @@ android {
         targetSdk = 32       // keep <=32 so the head-unit runtime treats us as a "known" target
         // NB: we tried targetSdk 25 to reach the camera lib (untrusted_app_25 domain) — didn't help,
         // this firmware blocks /vendor/lib64 for apps AND shell (linker namespace). See CAMERAS_SENTRY.md.
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         // The head unit is arm64 only; skipping the other ABIs keeps the native build (and APK) small.
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -85,7 +85,10 @@ android {
     }
     androidResources {
         // The private car art folder carries preview_*.png for humans (5.8 MB); the app never reads them.
-        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:preview_*"
+        // -Psharkhub.public=true keeps the private BYD-model packs (assets/car_private, incl. live/) out of a
+        // build meant for other owners: BYD's files are never redistributed; the public truck is assets/car
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:preview_*" +
+            (if ((findProperty("sharkhub.public") as String?) == "true") ":<dir>car_private" else "")
         // the live scene's models and environments are read whole at start-up; stored, they open without inflating
         noCompress += listOf("glb", "hdr")
     }

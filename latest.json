@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "0.2.0",
-  "apkUrl": "https://github.com/Peacemaker105/SharkHub/releases/download/v0.2.0/SharkHub-0.2.0.apk",
-  "notes": "First public release: dashboard with cards and the truck scene, vehicle overview, gauges, climate gestures, fuel log, SOC save."
+  "versionCode": 3,
+  "versionName": "0.3.0",
+  "apkUrl": "https://github.com/Peacemaker105/SharkHub/releases/download/v0.3.0/SharkHub-0.3.0.apk",
+  "notes": "0.3.0: fullscreen Vehicle page with Tyres / Incline / Electric lenses and a scene-settings cog (car colour, time of day, motion, lamps); moving scene with the car's lamps; two-zone climate card; reclined seats with animated airflow; steering and lamp readings fixed."
 }
